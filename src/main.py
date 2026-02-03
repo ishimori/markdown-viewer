@@ -579,7 +579,14 @@ class MarkdownViewer(QMainWindow):
 </body>
 </html>"""
 
-        tab.web_view.setHtml(html)
+        # Set base URL for relative links to work correctly
+        if tab.current_file:
+            base_url = QUrl.fromLocalFile(os.path.dirname(tab.current_file) + '/')
+        elif tab.current_folder:
+            base_url = QUrl.fromLocalFile(tab.current_folder + '/')
+        else:
+            base_url = QUrl()
+        tab.web_view.setHtml(html, base_url)
 
     def _refresh_current_tab(self):
         """Refresh current file in current tab"""
@@ -600,20 +607,6 @@ class MarkdownViewer(QMainWindow):
             QDesktopServices.openUrl(QUrl(url))
             return
 
-        # Handle local markdown links
-        if tab.current_file:
-            base_dir = os.path.dirname(tab.current_file)
-        elif tab.current_folder:
-            base_dir = tab.current_folder
-        else:
-            return
-
-        # Remove file:// prefix if present
-        if url.startswith('file:///'):
-            url = url[8:]  # Remove 'file:///'
-        elif url.startswith('file://'):
-            url = url[7:]  # Remove 'file://'
-
         # Handle anchor links within same file
         if url.startswith('#'):
             tab.web_view.page().runJavaScript(
@@ -621,8 +614,19 @@ class MarkdownViewer(QMainWindow):
             )
             return
 
-        # Resolve relative path
-        target_path = os.path.normpath(os.path.join(base_dir, url))
+        # Convert file:// URL to local path
+        qurl = QUrl(url)
+        if qurl.isLocalFile():
+            target_path = qurl.toLocalFile()
+        else:
+            # Handle relative paths
+            if tab.current_file:
+                base_dir = os.path.dirname(tab.current_file)
+            elif tab.current_folder:
+                base_dir = tab.current_folder
+            else:
+                return
+            target_path = os.path.normpath(os.path.join(base_dir, url))
 
         # Check if it's a markdown file
         if not target_path.lower().endswith(('.md', '.markdown')):

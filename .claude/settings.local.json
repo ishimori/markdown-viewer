@@ -9,7 +9,9 @@
       "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" status)",
       "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" diff)",
       "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" log --oneline -5)",
-      "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" add README.md CLAUDE.md doc/spec/ doc/ARCHITECTURE.md src/style.css .claude/)"
+      "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" add README.md CLAUDE.md doc/spec/ doc/ARCHITECTURE.md src/style.css .claude/)",
+      "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" commit -m \"$\\(cat <<''EOF''\ndocs: Add AI-friendly specification documents and README\n\n- Add doc/spec/ with comprehensive project documentation\n  - index.md: Entry point with quick reference\n  - overview.md: Project purpose and tech stack\n  - architecture.md: System design and data flow\n  - components.md: Class and method specifications\n  - features.md: Feature specifications\n  - ui-style.md: UI design and CSS variables\n  - development.md: Development guide\n- Add README.md with project introduction and usage\n- Add CLAUDE.md for AI assistant guidance\n- Update style.css with blue theme\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" diff src/main.py .claude/settings.local.json)"
     ]
   }
 }
