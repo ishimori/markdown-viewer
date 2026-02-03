@@ -1,0 +1,10 @@
+// このファイルの内容を VSCode のキーバインド設定にコピーしてください
+// Ctrl+K Ctrl+K → keybindings.json を開く
+[
+    {
+        "key": "ctrl+shift+m",
+        "command": "workbench.action.tasks.runTask",
+        "args": "Open in Markdown Viewer",
+        "when": "resourceExtname == .md"
+    }
+]

@@ -1,0 +1,19 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Open in Markdown Viewer",
+            "type": "shell",
+            "command": "wscript.exe",
+            "args": [
+                "${workspaceFolder}\\MarkdownViewer.vbs",
+                "${file}"
+            ],
+            "presentation": {
+                "reveal": "never",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

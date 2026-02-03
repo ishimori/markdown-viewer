@@ -1,0 +1,26 @@
+{
+    // Open in External App 拡張機能用の設定
+    // 拡張機能をインストール後、以下の設定をユーザー設定にコピーしてください
+    "openInExternalApp.openMapper": [
+        {
+            "extensionName": "md",
+            "apps": [
+                {
+                    "title": "Markdown Viewer",
+                    "openCommand": "wscript.exe",
+                    "args": ["c:\\repo\\markdown-viewer\\MarkdownViewer.vbs", "${file}"]
+                }
+            ]
+        },
+        {
+            "extensionName": "markdown",
+            "apps": [
+                {
+                    "title": "Markdown Viewer",
+                    "openCommand": "wscript.exe",
+                    "args": ["c:\\repo\\markdown-viewer\\MarkdownViewer.vbs", "${file}"]
+                }
+            ]
+        }
+    ]
+}

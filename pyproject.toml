@@ -1,0 +1,20 @@
+[project]
+name = "markdown-viewer"
+version = "1.0.0"
+description = "A Markdown viewer with Mermaid diagram support for Windows"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt6>=6.4.0",
+    "PyQt6-WebEngine>=6.4.0",
+]
+
+[project.scripts]
+markdown-viewer = "main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = []
