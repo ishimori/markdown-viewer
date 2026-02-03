@@ -6,7 +6,10 @@ Windows Desktop Application using PyQt6
 import sys
 import os
 import json
+import csv
+from io import StringIO
 from pathlib import Path
+from enum import Enum
 
 
 def get_resource_path(relative_path: str) -> Path:
@@ -18,6 +21,36 @@ def get_resource_path(relative_path: str) -> Path:
         base_path = Path(__file__).parent
     return base_path / relative_path
 
+
+class FileType(Enum):
+    """Supported file types for viewing"""
+    MARKDOWN = "markdown"
+    XML = "xml"
+    PYTHON = "python"
+    CSV = "csv"
+    UNKNOWN = "unknown"
+
+
+FILE_TYPE_MAP = {
+    '.md': FileType.MARKDOWN,
+    '.markdown': FileType.MARKDOWN,
+    '.xml': FileType.XML,
+    '.xsl': FileType.XML,
+    '.xslt': FileType.XML,
+    '.xsd': FileType.XML,
+    '.svg': FileType.XML,
+    '.py': FileType.PYTHON,
+    '.pyw': FileType.PYTHON,
+    '.csv': FileType.CSV,
+}
+
+
+def detect_file_type(file_path: str) -> FileType:
+    """Detect file type from extension"""
+    ext = os.path.splitext(file_path)[1].lower()
+    return FILE_TYPE_MAP.get(ext, FileType.UNKNOWN)
+
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSplitter, QTreeView,
     QVBoxLayout, QHBoxLayout, QWidget, QToolBar, QFileDialog, QMessageBox,
@@ -25,8 +58,11 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
-from PyQt6.QtCore import Qt, QModelIndex, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QAction, QFileSystemModel, QShortcut, QKeySequence, QCloseEvent, QDesktopServices
+from PyQt6.QtCore import Qt, QModelIndex, QTimer, QUrl, pyqtSignal, QRect
+from PyQt6.QtGui import (
+    QAction, QFileSystemModel, QShortcut, QKeySequence, QCloseEvent,
+    QDesktopServices, QPainter, QColor, QFont, QBrush, QPixmap, QIcon
+)
 
 
 # Qt Widget Styles (centralized for maintainability)
@@ -88,6 +124,64 @@ QT_STYLES = {
         }
     """
 }
+
+
+class FileTypeIconModel(QFileSystemModel):
+    """Custom QFileSystemModel with file type badge icons"""
+
+    BADGE_CONFIG = {
+        FileType.MARKDOWN: ('#4CAF50', 'MD'),    # Green
+        FileType.XML: ('#FF9800', 'XML'),         # Orange
+        FileType.PYTHON: ('#3776AB', 'PY'),       # Python blue
+        FileType.CSV: ('#9C27B0', 'CSV'),         # Purple
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._icon_cache = {}
+
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
+        if role == Qt.ItemDataRole.DecorationRole and index.column() == 0:
+            file_path = self.filePath(index)
+            if os.path.isfile(file_path):
+                file_type = detect_file_type(file_path)
+                if file_type in self.BADGE_CONFIG:
+                    return self._get_badge_icon(file_type)
+        return super().data(index, role)
+
+    def _get_badge_icon(self, file_type: FileType) -> QIcon:
+        """Get or create cached badge icon for file type"""
+        if file_type in self._icon_cache:
+            return self._icon_cache[file_type]
+
+        bg_color, text = self.BADGE_CONFIG[file_type]
+
+        # Create icon pixmap
+        size = 16
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw rounded rectangle background
+        painter.setBrush(QBrush(QColor(bg_color)))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(0, 0, size, size, 3, 3)
+
+        # Draw text
+        painter.setPen(QColor('#FFFFFF'))
+        font = QFont()
+        font.setPixelSize(8)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(QRect(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, text)
+
+        painter.end()
+
+        icon = QIcon(pixmap)
+        self._icon_cache[file_type] = icon
+        return icon
 
 
 class MarkdownWebPage(QWebEnginePage):
@@ -178,6 +272,7 @@ class FolderTab(QWidget):
     # Filter options: (display_name, filter_patterns or None for all)
     FILTER_OPTIONS = [
         ("Markdown only", ["*.md", "*.markdown"]),
+        ("All supported", ["*.md", "*.markdown", "*.xml", "*.xsl", "*.xslt", "*.xsd", "*.svg", "*.py", "*.pyw", "*.csv"]),
         ("All files", None),
     ]
 
@@ -216,9 +311,9 @@ class FolderTab(QWidget):
         self.filter_combo.currentIndexChanged.connect(self._on_filter_changed)
         left_layout.addWidget(self.filter_combo)
 
-        # Tree view setup
+        # Tree view setup with custom icon model
         self.tree_view = QTreeView()
-        self.file_model = QFileSystemModel()
+        self.file_model = FileTypeIconModel()
         self._apply_filter(0)  # Apply default filter (Markdown only)
         self.tree_view.setModel(self.file_model)
 
@@ -339,8 +434,10 @@ class MarkdownViewer(QMainWindow):
         self.setGeometry(100, 100, 1400, 900)
 
         self.css_content = ""
+        self.highlight_css = ""
         self.marked_js_path = ""
         self.mermaid_js_path = ""
+        self.highlight_js_path = ""
         self.html_template = ""
         self.tab_widget = None
         self.session_manager = SessionManager()
@@ -363,10 +460,16 @@ class MarkdownViewer(QMainWindow):
         if css_path.exists():
             self.css_content = css_path.read_text(encoding="utf-8")
 
+        # Load highlight.js CSS
+        highlight_css_path = get_resource_path("assets/css/highlight-github.css")
+        if highlight_css_path.exists():
+            self.highlight_css = highlight_css_path.read_text(encoding="utf-8")
+
         # Get JavaScript paths
         js_dir = get_resource_path("assets/js")
         self.marked_js_path = str(js_dir / "marked.min.js").replace('\\', '/')
         self.mermaid_js_path = str(js_dir / "mermaid.min.js").replace('\\', '/')
+        self.highlight_js_path = str(js_dir / "highlight.min.js").replace('\\', '/')
 
         # Load HTML template
         template_path = get_resource_path("templates/markdown.html")
@@ -540,15 +643,16 @@ class MarkdownViewer(QMainWindow):
         if not os.path.isfile(file_path):
             return
 
-        # Check if file should be opened based on current filter
-        is_markdown = file_path.lower().endswith(('.md', '.markdown'))
-        filter_allows_all = tab.get_filter_index() == 1  # "All files"
+        # Check if file should be opened based on type and filter
+        file_type = detect_file_type(file_path)
+        filter_index = tab.get_filter_index()
 
-        if is_markdown or filter_allows_all:
+        # Allow: supported types, or "All files" filter (index 2)
+        if file_type != FileType.UNKNOWN or filter_index == 2:
             # Clear navigation history when selecting from sidebar
             tab.navigation_history.clear()
             tab.current_file = file_path
-            self._load_markdown_file(tab, file_path)
+            self._load_file(tab, file_path)
             self._update_window_title()
 
     def _load_markdown_file(self, tab: FolderTab, file_path: str):
@@ -594,13 +698,191 @@ class MarkdownViewer(QMainWindow):
             base_url = QUrl()
         tab.web_view.setHtml(html, base_url)
 
+    def _load_file(self, tab: FolderTab, file_path: str):
+        """Load and render file based on type"""
+        file_type = detect_file_type(file_path)
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            if file_type == FileType.MARKDOWN:
+                self._render_markdown(tab, content)
+            elif file_type == FileType.XML:
+                self._render_code(tab, content, 'xml', 'XML Document')
+            elif file_type == FileType.PYTHON:
+                self._render_code(tab, content, 'python', 'Python Script')
+            elif file_type == FileType.CSV:
+                self._render_csv(tab, content)
+            else:
+                # Plain text fallback
+                self._render_code(tab, content, 'plaintext', 'Text File')
+
+            tab.update_stats(content)
+        except UnicodeDecodeError:
+            QMessageBox.warning(
+                self, "Cannot Open File",
+                f"This file cannot be displayed as text:\n{os.path.basename(file_path)}\n\n"
+                "The file may be a binary file."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load file:\n{e}")
+
+    def _escape_for_js(self, content: str) -> str:
+        """Escape content for JavaScript template literal"""
+        escaped = content.replace('\\', '\\\\')
+        escaped = escaped.replace('`', '\\`')
+        escaped = escaped.replace('$', '\\$')
+        return escaped
+
+    def _escape_html(self, text: str) -> str:
+        """Escape HTML special characters"""
+        return (text
+            .replace('&', '&amp;')
+            .replace('<', '&lt;')
+            .replace('>', '&gt;')
+            .replace('"', '&quot;')
+            .replace("'", '&#39;'))
+
+    def _set_html_with_base(self, tab: FolderTab, html: str):
+        """Set HTML with proper base URL"""
+        if tab.current_file:
+            base_url = QUrl.fromLocalFile(os.path.dirname(tab.current_file) + '/')
+        elif tab.current_folder:
+            base_url = QUrl.fromLocalFile(tab.current_folder + '/')
+        else:
+            base_url = QUrl()
+        tab.web_view.setHtml(html, base_url)
+
+    def _render_code(self, tab: FolderTab, content: str, language: str, title: str):
+        """Render code with syntax highlighting"""
+        escaped = self._escape_for_js(content)
+        html = f'''<!DOCTYPE html>
+<html><head>
+    <meta charset="UTF-8">
+    <style>{self.css_content}</style>
+    <style>{self.highlight_css}</style>
+    <script src="file:///{self.highlight_js_path}"></script>
+    <style>
+        body {{ margin: 0; padding: 20px; background: var(--bg-color, #f8faff); }}
+        .file-header {{
+            background: var(--h2-bg, linear-gradient(135deg, #1976d2 0%, #1565c0 100%));
+            color: white; padding: 12px 20px;
+            border-radius: 6px 6px 0 0; font-weight: 600;
+            display: flex; align-items: center; gap: 8px;
+        }}
+        .file-badge {{
+            background: rgba(255,255,255,0.2); padding: 2px 8px;
+            border-radius: 4px; font-size: 11px; text-transform: uppercase;
+        }}
+        pre {{
+            margin: 0; border-top-left-radius: 0; border-top-right-radius: 0;
+            border-bottom-left-radius: 6px; border-bottom-right-radius: 6px;
+            overflow: auto;
+        }}
+        .hljs {{
+            background: var(--code-bg, #e3f2fd); padding: 16px;
+            font-family: 'Consolas', 'Monaco', monospace; font-size: 13px;
+            line-height: 1.5;
+        }}
+    </style>
+</head><body>
+    <div class="file-header">
+        <span class="file-badge">{language.upper()}</span>
+        <span>{title}</span>
+    </div>
+    <pre><code class="language-{language}" id="code-content"></code></pre>
+    <script>
+        document.getElementById('code-content').textContent = `{escaped}`;
+        hljs.highlightAll();
+    </script>
+</body></html>'''
+        self._set_html_with_base(tab, html)
+
+    def _render_csv(self, tab: FolderTab, content: str):
+        """Render CSV as HTML table"""
+        rows = list(csv.reader(StringIO(content)))
+
+        if not rows:
+            html = f'''<!DOCTYPE html>
+<html><head>
+    <meta charset="UTF-8">
+    <style>{self.css_content}</style>
+    <style>
+        body {{ margin: 0; padding: 40px; background: var(--bg-color, #f8faff); text-align: center; }}
+    </style>
+</head><body>
+    <h3 style="color: var(--blockquote-color, #546e7a);">Empty CSV File</h3>
+    <p style="color: var(--blockquote-color, #546e7a);">This CSV file contains no data.</p>
+</body></html>'''
+        else:
+            # Build header row
+            header = ''.join(f'<th>{self._escape_html(c)}</th>' for c in rows[0])
+            # Build data rows
+            body = ''.join(
+                '<tr>' + ''.join(f'<td>{self._escape_html(c)}</td>' for c in row) + '</tr>'
+                for row in rows[1:]
+            )
+            row_count = len(rows)
+            col_count = len(rows[0]) if rows else 0
+
+            html = f'''<!DOCTYPE html>
+<html><head>
+    <meta charset="UTF-8">
+    <style>{self.css_content}</style>
+    <style>
+        body {{ margin: 0; padding: 20px; background: var(--bg-color, #f8faff); }}
+        .csv-header {{
+            background: var(--h2-bg, linear-gradient(135deg, #1976d2 0%, #1565c0 100%));
+            color: white; padding: 12px 20px;
+            border-radius: 6px; font-weight: 600; margin-bottom: 16px;
+            display: flex; align-items: center; gap: 8px;
+        }}
+        .file-badge {{
+            background: rgba(255,255,255,0.2); padding: 2px 8px;
+            border-radius: 4px; font-size: 11px;
+        }}
+        .csv-stats {{
+            font-size: 12px; font-weight: normal; opacity: 0.9; margin-left: auto;
+        }}
+        table {{
+            width: 100%; border-collapse: collapse; font-size: 13px;
+            background: white; border-radius: 6px; overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }}
+        th {{
+            background: var(--table-header-bg, #e3f2fd);
+            color: var(--heading-color, #0d47a1);
+            padding: 10px 12px; text-align: left; font-weight: 600;
+            border-bottom: 2px solid var(--table-border, #90caf9);
+        }}
+        td {{
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--table-border, #e0e0e0);
+            max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }}
+        tr:hover td {{ background: var(--table-row-hover, #f5f5f5); }}
+    </style>
+</head><body>
+    <div class="csv-header">
+        <span class="file-badge">CSV</span>
+        <span>CSV Data</span>
+        <span class="csv-stats">{row_count} rows, {col_count} columns</span>
+    </div>
+    <table>
+        <thead><tr>{header}</tr></thead>
+        <tbody>{body}</tbody>
+    </table>
+</body></html>'''
+
+        self._set_html_with_base(tab, html)
+
     def _refresh_current_tab(self):
         """Refresh current file in current tab"""
         tab = self._get_current_tab()
         if tab and tab.current_file and os.path.exists(tab.current_file):
             # Clear navigation history on refresh
             tab.navigation_history.clear()
-            self._load_markdown_file(tab, tab.current_file)
+            self._load_file(tab, tab.current_file)
 
     def _toggle_overview(self):
         """Toggle overview box visibility"""
@@ -653,13 +935,13 @@ class MarkdownViewer(QMainWindow):
                     QMessageBox.warning(self, "Warning", f"File not found:\n{target_path}")
                     return
 
-            # Check filter setting for non-markdown files
-            is_markdown = target_path.lower().endswith(('.md', '.markdown'))
-            filter_allows_all = tab.get_filter_index() == 1  # "All files"
-            if not is_markdown and not filter_allows_all:
+            # Check filter setting for unsupported files
+            file_type = detect_file_type(target_path)
+            filter_allows_all = tab.get_filter_index() == 2  # "All files"
+            if file_type == FileType.UNKNOWN and not filter_allows_all:
                 QMessageBox.warning(
                     self, "Warning",
-                    f"Cannot open non-Markdown file:\n{os.path.basename(target_path)}\n\n"
+                    f"Cannot open unsupported file:\n{os.path.basename(target_path)}\n\n"
                     "Switch to 'All files' filter to open this file."
                 )
                 return
@@ -669,14 +951,14 @@ class MarkdownViewer(QMainWindow):
                 folder = os.path.dirname(target_path)
                 new_tab = self._add_new_tab(folder)
                 new_tab.current_file = target_path
-                self._load_markdown_file(new_tab, target_path)
+                self._load_file(new_tab, target_path)
                 self._update_window_title()
             else:
                 # Open in same tab - add current file to history for back navigation
                 if tab.current_file:
                     tab.navigation_history.append(tab.current_file)
                 tab.current_file = target_path
-                self._load_markdown_file(tab, target_path)
+                self._load_file(tab, target_path)
                 self._update_window_title()
 
                 # Update tree view selection if in same folder
@@ -699,7 +981,7 @@ class MarkdownViewer(QMainWindow):
         # Load the previous file (without adding to history)
         if os.path.exists(previous_file):
             tab.current_file = previous_file
-            self._load_markdown_file(tab, previous_file)
+            self._load_file(tab, previous_file)
             self._update_window_title()
 
             # Update tree view selection if in same folder
@@ -751,7 +1033,7 @@ class MarkdownViewer(QMainWindow):
             print(f"Error handling context menu: {e}")
 
     def open_file(self, file_path: str):
-        """Open a specific file (markdown or text)"""
+        """Open a specific file"""
         file_path = os.path.abspath(file_path)
 
         if not os.path.exists(file_path):
@@ -762,9 +1044,12 @@ class MarkdownViewer(QMainWindow):
         folder = os.path.dirname(file_path)
         tab = self._add_new_tab(folder)
 
-        # For non-markdown files, switch filter to "All files"
-        if not file_path.lower().endswith(('.md', '.markdown')):
-            tab.set_filter_index(1)  # "All files"
+        # For unsupported files, switch filter to "All files"
+        file_type = detect_file_type(file_path)
+        if file_type == FileType.UNKNOWN:
+            tab.set_filter_index(2)  # "All files"
+        elif file_type != FileType.MARKDOWN:
+            tab.set_filter_index(1)  # "All supported"
 
         # Select the file in tree view (with delay for QFileSystemModel)
         def select_file():
@@ -776,7 +1061,7 @@ class MarkdownViewer(QMainWindow):
 
         # Load and display the file
         tab.current_file = file_path
-        self._load_markdown_file(tab, file_path)
+        self._load_file(tab, file_path)
         self._update_window_title()
 
     def closeEvent(self, event: QCloseEvent):
@@ -856,7 +1141,7 @@ class MarkdownViewer(QMainWindow):
                     if file_index.isValid():
                         tab.tree_view.setCurrentIndex(file_index)
                         tab.tree_view.scrollTo(file_index)
-                    self._load_markdown_file(tab, file_path)
+                    self._load_file(tab, file_path)
 
             QTimer.singleShot(200, load_pending_files)
 
