@@ -8,13 +8,23 @@ import os
 import json
 from pathlib import Path
 
+
+def get_resource_path(relative_path: str) -> Path:
+    """Get absolute path to resource, works for dev and PyInstaller"""
+    if hasattr(sys, '_MEIPASS'):
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = Path(sys._MEIPASS)
+    else:
+        base_path = Path(__file__).parent
+    return base_path / relative_path
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSplitter, QTreeView,
     QVBoxLayout, QHBoxLayout, QWidget, QToolBar, QFileDialog, QMessageBox,
     QTabWidget, QTabBar, QLabel, QFrame, QMenu
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEnginePage
+from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PyQt6.QtCore import Qt, QModelIndex, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QAction, QFileSystemModel, QShortcut, QKeySequence, QCloseEvent, QDesktopServices
 
@@ -188,6 +198,11 @@ class FolderTab(QWidget):
         self.web_view.setPage(self.web_page)
         self.web_view.setMinimumWidth(600)
 
+        # Allow local content to access remote URLs (for CDN scripts)
+        self.web_view.settings().setAttribute(
+            QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True
+        )
+
         # Enable context menu for right-click
         self.web_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
@@ -231,10 +246,13 @@ class MarkdownViewer(QMainWindow):
         self.setGeometry(100, 100, 1400, 900)
 
         self.css_content = ""
+        self.marked_js_path = ""
+        self.mermaid_js_path = ""
         self.tab_widget = None
         self.session_manager = SessionManager()
 
         self._load_css()
+        self._load_js()
         self._setup_ui()
         self._setup_toolbar()
         self._setup_shortcuts()
@@ -247,9 +265,15 @@ class MarkdownViewer(QMainWindow):
 
     def _load_css(self):
         """Load CSS content from file"""
-        css_path = Path(__file__).parent / "style.css"
+        css_path = get_resource_path("style.css")
         if css_path.exists():
             self.css_content = css_path.read_text(encoding="utf-8")
+
+    def _load_js(self):
+        """Get JavaScript library paths"""
+        js_dir = get_resource_path("assets/js")
+        self.marked_js_path = str(js_dir / "marked.min.js").replace('\\', '/')
+        self.mermaid_js_path = str(js_dir / "mermaid.min.js").replace('\\', '/')
 
     def _setup_ui(self):
         """Setup main UI with tab widget"""
@@ -455,8 +479,8 @@ class MarkdownViewer(QMainWindow):
 <head>
     <meta charset="UTF-8">
     <style>{self.css_content}</style>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="file:///{self.marked_js_path}"></script>
+    <script src="file:///{self.mermaid_js_path}"></script>
 </head>
 <body>
     <div id="content"></div>
@@ -472,8 +496,17 @@ class MarkdownViewer(QMainWindow):
 
 
     <script>
+        console.log('DEBUG: Script started');
+        console.log('DEBUG: marked available:', typeof marked);
+        console.log('DEBUG: mermaid available:', typeof mermaid);
+
         // Configure mermaid
-        mermaid.initialize({{ startOnLoad: false, theme: 'default' }});
+        if (typeof mermaid !== 'undefined') {{
+            mermaid.initialize({{ startOnLoad: false, theme: 'default' }});
+            console.log('DEBUG: mermaid initialized');
+        }} else {{
+            console.error('DEBUG: mermaid is not defined!');
+        }}
 
         // Custom renderer for mermaid code blocks (supports both old and new marked.js API)
         const renderer = {{
@@ -497,20 +530,35 @@ class MarkdownViewer(QMainWindow):
             }}
         }};
 
-        marked.use({{ renderer }});
-        marked.setOptions({{
-            gfm: true,
-            breaks: true
-        }});
+        if (typeof marked !== 'undefined') {{
+            marked.use({{ renderer }});
+            marked.setOptions({{
+                gfm: true,
+                breaks: true
+            }});
+            console.log('DEBUG: marked configured');
 
-        // Render markdown
-        const markdown = `{escaped_content}`;
-        document.getElementById('content').innerHTML = marked.parse(markdown);
+            // Render markdown
+            const markdown = `{escaped_content}`;
+            console.log('DEBUG: markdown length:', markdown.length);
+            try {{
+                document.getElementById('content').innerHTML = marked.parse(markdown);
+                console.log('DEBUG: markdown rendered');
+            }} catch (e) {{
+                console.error('DEBUG: marked.parse error:', e);
+            }}
+        }} else {{
+            console.error('DEBUG: marked is not defined!');
+            document.getElementById('content').innerHTML = '<pre>' + `{escaped_content}` + '</pre>';
+        }}
 
         // Render mermaid diagrams
-        mermaid.run({{
-            querySelector: '.mermaid'
-        }});
+        if (typeof mermaid !== 'undefined') {{
+            mermaid.run({{
+                querySelector: '.mermaid'
+            }});
+            console.log('DEBUG: mermaid.run called');
+        }}
 
         // Build Table of Contents
         function buildTOC() {{
