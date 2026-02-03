@@ -201,8 +201,28 @@ pip install pyinstaller
 pyinstaller --onefile --windowed \
     --name "MarkdownViewer" \
     --add-data "src/style.css;src" \
+    --add-data "src/templates;src/templates" \
     src/main.py
 ```
+
+### リソースパス解決
+
+PyInstaller でビルドされた実行ファイルでは、リソースファイルのパスが異なる。`get_resource_path()` 関数で対応。
+
+```python
+def get_resource_path(relative_path: str) -> str:
+    """PyInstaller対応のリソースパス解決"""
+    if hasattr(sys, '_MEIPASS'):
+        # PyInstaller の一時展開ディレクトリ
+        return os.path.join(sys._MEIPASS, relative_path)
+    # 通常実行時
+    return os.path.join(os.path.dirname(__file__), relative_path)
+```
+
+| 環境 | パス |
+|------|------|
+| 開発時 | `src/style.css` |
+| PyInstaller | `{_MEIPASS}/src/style.css` |
 
 ## 変更履歴管理
 

@@ -64,6 +64,44 @@ markdown-viewer/
 └── MarkdownViewer.vbs       # Windows起動スクリプト
 ```
 
+## HTMLテンプレート
+
+### markdown.html
+
+Markdownレンダリング用のHTMLテンプレート。以下のプレースホルダーを Python 側で置換。
+
+| プレースホルダー | 内容 |
+|-----------------|------|
+| `$CSS_CONTENT$` | style.css の内容 |
+| `$MARKED_JS_PATH$` | marked.min.js のファイルパス |
+| `$MERMAID_JS_PATH$` | mermaid.min.js のファイルパス |
+| `$MARKDOWN_CONTENT$` | Markdown テキスト（エスケープ済み） |
+| `$BACK_BUTTON_STYLE$` | Backボタンの表示スタイル |
+
+### HTML構造
+
+テンプレートの主要構成：
+
+- head: CSS埋め込み、marked.js/mermaid.js読み込み
+- body: Backボタン、コンテンツ領域、サイドバー（TOC）
+- script: Markdownパース、Mermaid初期化、TOC生成
+
+詳細は `src/templates/markdown.html` を参照。
+
+### エスケープ処理
+
+Markdownコンテンツは JavaScript テンプレートリテラル内に埋め込まれるため、バックスラッシュ、バッククォート、ドル記号をエスケープする。
+
+### JavaScript機能
+
+| 関数 | 説明 |
+|------|------|
+| `buildTOC()` | 見出しから目次を生成。ID がない場合は自動生成 |
+| `updateActiveHeading()` | スクロール位置に応じて現在の見出しをハイライト |
+| `toggleOverview()` | アウトラインの表示/非表示を切り替え |
+
+---
+
 ## データフロー
 
 ### 1. アプリケーション起動
@@ -128,10 +166,45 @@ MarkdownViewer.closeEvent()
         ├─► 開いているタブ情報取得
         │     ├─► フォルダパス
         │     ├─► 選択ファイル
-        │     └─► アウトライン表示状態
+        │     ├─► アウトライン表示状態
+        │     └─► フィルターインデックス
         │
         └─► JSON形式で保存
               └─► ~/.markdown-viewer/session.json
+```
+
+### 4. リンククリック処理
+
+```
+ユーザー操作: リンクをクリック
+  │
+  ▼
+MarkdownWebPage.acceptNavigationRequest()
+  │
+  ├─► Shiftキー押下状態を確認
+  │
+  ├─► link_clicked シグナル発行
+  │
+  └─► False を返却（デフォルト動作抑制）
+        │
+        ▼
+MarkdownViewer._handle_link_click(url, new_tab)
+  │
+  ├─► URLスキーム判定
+  │     │
+  │     ├─► app://back → _navigate_back()
+  │     │
+  │     ├─► http(s):// → QDesktopServices.openUrl()
+  │     │
+  │     ├─► #anchor → JavaScript scrollIntoView()
+  │     │
+  │     └─► ローカルファイル → ファイル読み込み
+  │           │
+  │           ├─► 相対パス解決
+  │           ├─► .md 拡張子自動補完
+  │           └─► 履歴スタックに追加
+  │
+  └─► new_tab=True の場合、新規タブ作成
 ```
 
 ## クラス関係図
@@ -207,12 +280,18 @@ MarkdownViewer.closeEvent()
     {
       "folder_path": "C:/path/to/folder",
       "selected_file": "document.md",
-      "outline_visible": true
+      "outline_visible": true,
+      "filter_index": 0
     }
   ],
   "active_tab": 0
 }
 ```
+
+#### セッション復元時の注意点
+
+- **ウィンドウ位置の画面範囲チェック**: 復元時にウィンドウが画面外に出ないよう、利用可能な画面範囲内に収める
+- **遅延ロード**: `QFileSystemModel` の非同期特性に対応するため、ファイル選択を 200ms 遅延させる（`QTimer.singleShot`）
 
 ### pyproject.toml
 

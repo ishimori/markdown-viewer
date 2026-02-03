@@ -257,25 +257,9 @@ QSplitter (horizontal)
 6. WebViewにHTMLをセット
 
 **生成されるHTML構造:**
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <style>{css}</style>
-    <script src="marked.js"></script>
-    <script src="mermaid.js"></script>
-</head>
-<body>
-    <div class="container">
-        <div id="content">{rendered_markdown}</div>
-        <div id="outline">{table_of_contents}</div>
-    </div>
-    <script>
-        // Markdown parse & Mermaid init
-    </script>
-</body>
-</html>
-```
+
+テンプレートファイル `src/templates/markdown.html` を使用。
+詳細は [architecture.md](architecture.md) の「HTMLテンプレート」セクションを参照。
 
 #### `_on_file_clicked(self, item: QTreeWidgetItem, column: int) -> None`
 
