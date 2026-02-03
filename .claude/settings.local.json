@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c \"cd /d c:\\\\repo\\\\markdown-viewer && uv venv && dir .venv\")",
+      "Bash(git init:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(git add:*)",
+      "Bash(dir:*)",
+      "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" status)",
+      "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" diff)",
+      "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" log --oneline -5)",
+      "Bash(git -C \"c:\\\\repo\\\\markdown-viewer\" add README.md CLAUDE.md doc/spec/ doc/ARCHITECTURE.md src/style.css .claude/)"
+    ]
+  }
+}
