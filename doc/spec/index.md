@@ -28,8 +28,10 @@
 ```
 markdown-viewer/
 ├── src/
-│   ├── main.py          # アプリケーション本体（673行）
-│   └── style.css        # UIスタイル定義（455行）
+│   ├── main.py          # アプリケーション本体
+│   ├── style.css        # UIスタイル定義
+│   └── templates/
+│       └── markdown.html # HTMLテンプレート
 ├── doc/
 │   ├── spec/            # 本仕様書
 │   └── sample.md        # サンプルMarkdown
@@ -39,13 +41,15 @@ markdown-viewer/
 └── MarkdownViewer.vbs   # Windows起動用VBS
 ```
 
-### 主要クラス
+### 主要クラス・定数
 
-| クラス名 | ファイル | 役割 |
-|---------|---------|------|
-| `SessionManager` | main.py:23 | セッション状態の保存・復元 |
-| `FolderTab` | main.py:74 | タブ単位のUI管理 |
-| `MarkdownViewer` | main.py:298 | メインウィンドウ・アプリ制御 |
+| 名前 | ファイル | 役割 |
+|------|---------|------|
+| `QT_STYLES` | main.py:33 | Qt ウィジェットスタイル定数 |
+| `MarkdownWebPage` | main.py:93 | リンククリック処理 |
+| `SessionManager` | main.py:121 | セッション状態の保存・復元 |
+| `FolderTab` | main.py:175 | タブ単位のUI管理 |
+| `MarkdownViewer` | main.py:335 | メインウィンドウ・アプリ制御 |
 
 ### 依存ライブラリ
 

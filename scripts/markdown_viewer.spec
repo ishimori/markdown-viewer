@@ -12,6 +12,7 @@ a = Analysis(
     datas=[
         (os.path.join(project_dir, 'src', 'style.css'), '.'),
         (os.path.join(project_dir, 'src', 'assets'), 'assets'),
+        (os.path.join(project_dir, 'src', 'templates'), 'templates'),
     ],
     hiddenimports=[
         'PyQt6.QtWebEngineWidgets',

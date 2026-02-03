@@ -73,7 +73,9 @@ WshShell.Run "run.bat", 0, False
 markdown-viewer/
 ├── src/                    # ソースコード
 │   ├── main.py            # メインアプリケーション
-│   └── style.css          # UIスタイルシート
+│   ├── style.css          # UIスタイルシート
+│   └── templates/
+│       └── markdown.html  # HTMLテンプレート
 ├── doc/                    # ドキュメント
 │   ├── spec/              # 仕様書
 │   └── sample.md          # サンプルファイル
@@ -98,7 +100,7 @@ markdown-viewer/
   - クラス: PascalCase (`MarkdownViewer`)
   - メソッド/変数: snake_case (`_setup_ui`, `folder_path`)
   - 定数: UPPER_SNAKE_CASE (`SESSION_DIR`)
-  - プライベート: アンダースコアプレフィックス (`_load_css`)
+  - プライベート: アンダースコアプレフィックス (`_load_resources`)
 
 ### CSS
 

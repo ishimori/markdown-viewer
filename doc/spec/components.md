@@ -1,12 +1,28 @@
 # コンポーネント仕様
 
+## モジュールレベル定数
+
+### QT_STYLES
+
+Qt ウィジェット用のスタイルシート定数。SSOT（Single Source of Truth）原則に従い、スタイルを一元管理。
+
+| キー | 用途 |
+|------|------|
+| `filter_combo` | ファイルフィルタードロップダウン |
+| `stats_panel` | 統計情報パネル |
+| `stats_header` | 統計ヘッダーラベル |
+| `stats_name` | 統計項目名ラベル |
+| `stats_value` | 統計値ラベル |
+| `tab_widget` | タブウィジェット |
+
 ## クラス一覧
 
-| クラス | 継承元 | ファイル位置 | 役割 |
-|--------|--------|-------------|------|
-| `SessionManager` | - | main.py:23-71 | セッション状態の永続化 |
-| `FolderTab` | QWidget | main.py:74-295 | タブ単位のUI・ロジック |
-| `MarkdownViewer` | QMainWindow | main.py:298-673 | アプリケーション全体の制御 |
+| クラス | 継承元 | 役割 |
+|--------|--------|------|
+| `MarkdownWebPage` | QWebEnginePage | リンククリック処理 |
+| `SessionManager` | - | セッション状態の永続化 |
+| `FolderTab` | QWidget | タブ単位のUI・ロジック |
+| `MarkdownViewer` | QMainWindow | アプリケーション全体の制御 |
 
 ---
 
@@ -194,13 +210,24 @@ QSplitter (horizontal)
 |-----------|---|------|
 | file_path | str | 起動時に開くファイル（オプション） |
 
-#### `_load_css(self) -> str`
+#### `_load_resources(self) -> None`
 
-`src/style.css` を読み込んで返す。
+リソースファイルを読み込む。
 
-| 戻り値 | 説明 |
-|--------|------|
-| str | CSSテキスト |
+**読み込むリソース:**
+- `src/style.css` - CSSスタイルシート
+- `src/assets/js/marked.min.js` - Markdownパーサー
+- `src/assets/js/mermaid.min.js` - 図表ライブラリ
+- `src/templates/markdown.html` - HTMLテンプレート
+
+#### `_update_window_title(self) -> None`
+
+ウィンドウタイトルを現在のタブ状態に基づいて更新（SSOT原則）。
+
+**タイトル形式:**
+- ファイル選択時: `Markdown Viewer - {ファイル名}`
+- フォルダ選択時: `Markdown Viewer - {フォルダパス}`
+- 未選択時: `Markdown Viewer`
 
 #### `_setup_ui(self) -> None`
 

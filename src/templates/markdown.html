@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>$CSS_CONTENT$</style>
+    <script src="file:///$MARKED_JS_PATH$"></script>
+    <script src="file:///$MERMAID_JS_PATH$"></script>
+    <style>
+        .back-button {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 1000;
+            padding: 6px 12px;
+            background: #1976d2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: background 0.2s;
+        }
+        .back-button:hover {
+            background: #1565c0;
+        }
+        .back-button svg {
+            width: 16px;
+            height: 16px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Back Button (Floating) -->
+    <button class="back-button" id="back-button" style="$BACK_BUTTON_STYLE$" onclick="window.location.href='app://back'">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        Back
+    </button>
+
+    <div id="content"></div>
+
+    <!-- Overview Sidebar (Right) -->
+    <div id="sidebar-container" class="sidebar-container">
+        <button class="sidebar-toggle" onclick="toggleOverview()">Outline</button>
+        <div id="overview-box" class="overview-box">
+            <h4>Outline</h4>
+            <ul id="toc-list"></ul>
+        </div>
+    </div>
+
+
+    <script>
+        // Global error handlers to prevent crashes
+        window.addEventListener('error', function(e) {
+            console.error('Global error:', e.message);
+            e.preventDefault();
+        });
+        window.addEventListener('unhandledrejection', function(e) {
+            console.error('Unhandled promise rejection:', e.reason);
+            e.preventDefault();
+        });
+
+        console.log('DEBUG: Script started');
+        console.log('DEBUG: marked available:', typeof marked);
+        console.log('DEBUG: mermaid available:', typeof mermaid);
+
+        // Configure mermaid
+        if (typeof mermaid !== 'undefined') {
+            mermaid.initialize({ startOnLoad: false, theme: 'default' });
+            console.log('DEBUG: mermaid initialized');
+        } else {
+            console.error('DEBUG: mermaid is not defined!');
+        }
+
+        // Custom renderer for mermaid code blocks (supports both old and new marked.js API)
+        const renderer = {
+            code(codeOrObj, language) {
+                // Handle both old API (code, language) and new API ({text, lang})
+                let code, lang;
+                if (typeof codeOrObj === 'object' && codeOrObj !== null) {
+                    code = codeOrObj.text || codeOrObj.code || '';
+                    lang = codeOrObj.lang || codeOrObj.language || '';
+                } else {
+                    code = codeOrObj || '';
+                    lang = language || '';
+                }
+
+                if (lang === 'mermaid') {
+                    return '<div class="mermaid">' + code + '</div>';
+                }
+                // Default code block rendering
+                const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                return '<pre><code class="language-' + lang + '">' + escaped + '</code></pre>';
+            }
+        };
+
+        if (typeof marked !== 'undefined') {
+            marked.use({ renderer });
+            marked.setOptions({
+                gfm: true,
+                breaks: true
+            });
+            console.log('DEBUG: marked configured');
+
+            // Render markdown
+            const markdown = `$MARKDOWN_CONTENT$`;
+            console.log('DEBUG: markdown length:', markdown.length);
+            try {
+                document.getElementById('content').innerHTML = marked.parse(markdown);
+                console.log('DEBUG: markdown rendered');
+            } catch (e) {
+                console.error('DEBUG: marked.parse error:', e);
+            }
+        } else {
+            console.error('DEBUG: marked is not defined!');
+            document.getElementById('content').innerHTML = '<pre>' + `$MARKDOWN_CONTENT$` + '</pre>';
+        }
+
+        // Render mermaid diagrams
+        if (typeof mermaid !== 'undefined') {
+            mermaid.run({
+                querySelector: '.mermaid'
+            }).catch(function(e) {
+                console.error('DEBUG: mermaid.run error:', e);
+            });
+            console.log('DEBUG: mermaid.run called');
+        }
+
+        // Build Table of Contents
+        function buildTOC() {
+            const content = document.getElementById('content');
+            const headings = content.querySelectorAll('h1, h2, h3, h4');
+            const tocList = document.getElementById('toc-list');
+            tocList.innerHTML = '';
+
+            if (headings.length === 0) {
+                document.getElementById('sidebar-container').style.display = 'none';
+                return;
+            }
+
+            headings.forEach((heading, index) => {
+                if (!heading.id) {
+                    heading.id = 'heading-' + index;
+                }
+
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = '#' + heading.id;
+                a.textContent = heading.textContent;
+                a.className = 'toc-' + heading.tagName.toLowerCase();
+                a.onclick = function(e) {
+                    e.preventDefault();
+                    heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    document.querySelectorAll('.overview-box a').forEach(link => {
+                        link.classList.remove('active');
+                    });
+                    this.classList.add('active');
+                };
+
+                li.appendChild(a);
+                tocList.appendChild(li);
+            });
+        }
+
+        buildTOC();
+
+        // Scroll spy - highlight current section
+        function updateActiveHeading() {
+            const headings = document.querySelectorAll('#content h1, #content h2, #content h3, #content h4');
+            const tocLinks = document.querySelectorAll('.overview-box a');
+
+            let currentHeading = null;
+            headings.forEach((heading, index) => {
+                const rect = heading.getBoundingClientRect();
+                if (rect.top <= 100) {
+                    currentHeading = index;
+                }
+            });
+
+            tocLinks.forEach((link, index) => {
+                link.classList.toggle('active', index === currentHeading);
+            });
+        }
+
+        window.addEventListener('scroll', updateActiveHeading);
+
+        // Toggle functions
+        function toggleOverview() {
+            document.getElementById('sidebar-container').classList.toggle('closed');
+        }
+
+    </script>
+</body>
+</html>

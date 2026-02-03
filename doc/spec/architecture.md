@@ -42,15 +42,19 @@
 markdown-viewer/
 ├── src/
 │   ├── main.py              # メインアプリケーション
-│   │   ├── SessionManager   # セッション管理 (L23-71)
-│   │   ├── FolderTab        # タブUI (L74-295)
-│   │   └── MarkdownViewer   # メインウィンドウ (L298-673)
-│   └── style.css            # UIスタイル定義
-│       ├── CSS Variables    # カラーパレット (L1-20)
-│       ├── Typography       # フォント・見出し (L21-150)
-│       ├── Code Blocks      # コード表示 (L151-200)
-│       ├── Mermaid          # 図表スタイル (L201-250)
-│       └── Layout           # レイアウト (L251-455)
+│   │   ├── QT_STYLES        # Qt ウィジェットスタイル定数
+│   │   ├── MarkdownWebPage  # リンククリック処理
+│   │   ├── SessionManager   # セッション管理
+│   │   ├── FolderTab        # タブUI
+│   │   └── MarkdownViewer   # メインウィンドウ
+│   ├── style.css            # UIスタイル定義
+│   │   ├── CSS Variables    # カラーパレット
+│   │   ├── Typography       # フォント・見出し
+│   │   ├── Code Blocks      # コード表示
+│   │   ├── Mermaid          # 図表スタイル
+│   │   └── Layout           # レイアウト
+│   └── templates/
+│       └── markdown.html    # Markdownレンダリング用HTMLテンプレート
 ├── doc/
 │   ├── spec/                # 仕様書（本ドキュメント）
 │   └── sample.md            # サンプルファイル
@@ -70,7 +74,7 @@ main()
   ├─► QApplication 初期化
   │
   ├─► MarkdownViewer.__init__()
-  │     ├─► _load_css()           # style.css 読み込み
+  │     ├─► _load_resources()     # CSS, JS, HTMLテンプレート読み込み
   │     ├─► _setup_ui()           # タブウィジェット初期化
   │     ├─► _setup_toolbar()      # ツールバー設定
   │     ├─► _setup_shortcuts()    # キーボードショートカット

@@ -17,8 +17,10 @@
 ```
 markdown-viewer/
 ├── src/
-│   ├── main.py          # メインアプリ (SessionManager, FolderTab, MarkdownViewer)
-│   └── style.css        # UIスタイル定義
+│   ├── main.py          # メインアプリ (QT_STYLES, MarkdownWebPage, SessionManager, FolderTab, MarkdownViewer)
+│   ├── style.css        # UIスタイル定義
+│   └── templates/
+│       └── markdown.html # Markdownレンダリング用HTMLテンプレート
 ├── doc/
 │   ├── spec/            # 詳細仕様書 ← 変更時は必ず参照
 │   └── sample.md        # テスト用サンプル
@@ -38,13 +40,15 @@ markdown-viewer/
 | 全体把握 | [doc/spec/index.md](doc/spec/index.md) |
 | 開発環境 | [doc/spec/development.md](doc/spec/development.md) |
 
-## 主要クラス
+## 主要クラス・定数
 
-| クラス | 場所 | 役割 |
-|--------|------|------|
-| `SessionManager` | main.py:23 | セッション保存・復元 |
-| `FolderTab` | main.py:74 | タブUI・ファイル表示 |
-| `MarkdownViewer` | main.py:298 | メインウィンドウ |
+| クラス/定数 | 場所 | 役割 |
+|-------------|------|------|
+| `QT_STYLES` | main.py:33 | Qt ウィジェットスタイル定数 |
+| `MarkdownWebPage` | main.py:93 | リンククリック処理 |
+| `SessionManager` | main.py:121 | セッション保存・復元 |
+| `FolderTab` | main.py:175 | タブUI・ファイル表示 |
+| `MarkdownViewer` | main.py:335 | メインウィンドウ |
 
 ## よく使うコマンド
 
