@@ -11,6 +11,7 @@ a = Analysis(
     binaries=[],
     datas=[
         (os.path.join(project_dir, 'src', 'style.css'), '.'),
+        (os.path.join(project_dir, 'src', 'version.txt'), '.'),
         (os.path.join(project_dir, 'src', 'assets'), 'assets'),
         (os.path.join(project_dir, 'src', 'templates'), 'templates'),
     ],

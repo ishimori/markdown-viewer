@@ -1,6 +1,9 @@
 @echo off
 cd /d "%~dp0\.."
 
+REM Increment version number
+.venv\Scripts\python.exe scripts\increment_version.py
+
 REM Install pyinstaller in venv if not present
 .venv\Scripts\python.exe -m pip install pyinstaller
 

@@ -22,6 +22,26 @@ def get_resource_path(relative_path: str) -> Path:
     return base_path / relative_path
 
 
+def get_version_info() -> tuple[str, bool]:
+    """Get version number and whether running as frozen exe.
+
+    Returns:
+        tuple: (version_string, is_frozen)
+    """
+    # Check if running as frozen exe (PyInstaller)
+    is_frozen = getattr(sys, 'frozen', False)
+
+    # Read version from file
+    version_file = get_resource_path('version.txt')
+    try:
+        with open(version_file, 'r', encoding='utf-8') as f:
+            version = f.read().strip()
+    except FileNotFoundError:
+        version = '0.0'
+
+    return version, is_frozen
+
+
 class FileType(Enum):
     """Supported file types for viewing"""
     MARKDOWN = "markdown"
@@ -114,10 +134,14 @@ QT_STYLES = {
             border-bottom: none;
             border-top-left-radius: 4px;
             border-top-right-radius: 4px;
+            color: #5c6bc0;
         }
         QTabBar::tab:selected {
             background: #ffffff;
             border-bottom: 1px solid #ffffff;
+            border-top: 3px solid #1976d2;
+            font-weight: bold;
+            color: #0d47a1;
         }
         QTabBar::tab:hover:!selected {
             background: #bbdefb;
@@ -430,7 +454,13 @@ class FolderTab(QWidget):
 class MarkdownViewer(QMainWindow):
     def __init__(self, file_path: str = None):
         super().__init__()
-        self.setWindowTitle("Markdown Viewer")
+
+        # Get version info
+        version, is_frozen = get_version_info()
+        mode_label = "" if is_frozen else " [Python]"
+        self.app_title = f"Markdown Viewer v{version}{mode_label}"
+
+        self.setWindowTitle(self.app_title)
         self.setGeometry(100, 100, 1400, 900)
 
         self.css_content = ""
@@ -536,10 +566,44 @@ class MarkdownViewer(QMainWindow):
         prev_tab_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Tab"), self)
         prev_tab_shortcut.activated.connect(self._prev_tab)
 
+        # Zoom in (Ctrl++ or Ctrl+=)
+        zoom_in_shortcut = QShortcut(QKeySequence("Ctrl++"), self)
+        zoom_in_shortcut.activated.connect(self._zoom_in)
+        zoom_in_shortcut2 = QShortcut(QKeySequence("Ctrl+="), self)
+        zoom_in_shortcut2.activated.connect(self._zoom_in)
+
+        # Zoom out (Ctrl+-)
+        zoom_out_shortcut = QShortcut(QKeySequence("Ctrl+-"), self)
+        zoom_out_shortcut.activated.connect(self._zoom_out)
+
+        # Zoom reset (Ctrl+0)
+        zoom_reset_shortcut = QShortcut(QKeySequence("Ctrl+0"), self)
+        zoom_reset_shortcut.activated.connect(self._zoom_reset)
+
+    def _zoom_in(self):
+        """Increase zoom level of current tab's web view"""
+        tab = self._get_current_tab()
+        if tab and tab.web_view:
+            current_zoom = tab.web_view.zoomFactor()
+            tab.web_view.setZoomFactor(min(current_zoom + 0.1, 3.0))
+
+    def _zoom_out(self):
+        """Decrease zoom level of current tab's web view"""
+        tab = self._get_current_tab()
+        if tab and tab.web_view:
+            current_zoom = tab.web_view.zoomFactor()
+            tab.web_view.setZoomFactor(max(current_zoom - 0.1, 0.3))
+
+    def _zoom_reset(self):
+        """Reset zoom level to default"""
+        tab = self._get_current_tab()
+        if tab and tab.web_view:
+            tab.web_view.setZoomFactor(1.0)
+
     def _add_welcome_tab(self):
         """Add initial welcome tab"""
         tab = self._add_new_tab()
-        self._render_markdown(tab, "# Welcome to Markdown Viewer\n\nOpen a folder to get started.\n\n## Keyboard Shortcuts\n\n| Shortcut | Action |\n|----------|--------|\n| Ctrl+T | New Tab |\n| Ctrl+W | Close Tab |\n| Ctrl+O | Open Folder |\n| Ctrl+Tab | Next Tab |\n| Ctrl+Shift+Tab | Previous Tab |\n| Ctrl+Shift+O | Toggle Outline |\n| Ctrl+Shift+I | Toggle Stats |\n| F5 | Refresh |")
+        self._render_markdown(tab, "# Welcome to Markdown Viewer\n\nOpen a folder to get started.\n\n## Keyboard Shortcuts\n\n| Shortcut | Action |\n|----------|--------|\n| Ctrl+T | New Tab |\n| Ctrl+W | Close Tab |\n| Ctrl+O | Open Folder |\n| Ctrl+Tab | Next Tab |\n| Ctrl+Shift+Tab | Previous Tab |\n| Ctrl+Shift+O | Toggle Outline |\n| Ctrl+Shift+I | Toggle Stats |\n| Ctrl++ | Zoom In |\n| Ctrl+- | Zoom Out |\n| Ctrl+0 | Zoom Reset |\n| F5 | Refresh |")
 
     def _add_new_tab(self, folder_path: str = None) -> FolderTab:
         """Create and add a new folder tab"""
@@ -618,13 +682,13 @@ class MarkdownViewer(QMainWindow):
         tab = self._get_current_tab()
         if tab:
             if tab.current_file:
-                self.setWindowTitle(f"Markdown Viewer - {os.path.basename(tab.current_file)}")
+                self.setWindowTitle(f"{self.app_title} - {os.path.basename(tab.current_file)}")
             elif tab.current_folder:
-                self.setWindowTitle(f"Markdown Viewer - {tab.current_folder}")
+                self.setWindowTitle(f"{self.app_title} - {tab.current_folder}")
             else:
-                self.setWindowTitle("Markdown Viewer")
+                self.setWindowTitle(self.app_title)
         else:
-            self.setWindowTitle("Markdown Viewer")
+            self.setWindowTitle(self.app_title)
 
     def _update_tab_title(self, tab: FolderTab):
         """Update tab title"""
@@ -673,6 +737,64 @@ class MarkdownViewer(QMainWindow):
 
     def _render_markdown(self, tab: FolderTab, markdown_content: str):
         """Render markdown content in web view"""
+        # Build line info for gutter (detect all significant lines)
+        import json
+        lines = markdown_content.split('\n')
+        line_info = []
+        in_code_block = False
+        in_table = False
+
+        for i, line in enumerate(lines, 1):
+            stripped = line.strip()
+
+            # Track code blocks
+            if stripped.startswith('```'):
+                in_code_block = not in_code_block
+                line_info.append({'line': i, 'type': 'code_fence'})
+                continue
+
+            if in_code_block:
+                # Each line in code block
+                line_info.append({'line': i, 'type': 'code_line'})
+                continue
+
+            # Detect block types
+            if stripped.startswith('#'):
+                level = len(stripped) - len(stripped.lstrip('#'))
+                if 1 <= level <= 6:
+                    line_info.append({'line': i, 'type': f'h{level}'})
+                    in_table = False
+            elif stripped.startswith(('- ', '* ', '+ ')):
+                # Unordered list item
+                line_info.append({'line': i, 'type': 'li'})
+                in_table = False
+            elif stripped and stripped[0].isdigit() and '. ' in stripped[:4]:
+                # Ordered list item
+                line_info.append({'line': i, 'type': 'li'})
+                in_table = False
+            elif stripped.startswith('>'):
+                # Blockquote line
+                line_info.append({'line': i, 'type': 'quote'})
+                in_table = False
+            elif stripped.startswith('|') and stripped.endswith('|'):
+                # Table row
+                line_info.append({'line': i, 'type': 'tr'})
+                in_table = True
+            elif in_table and stripped.startswith('|--') or stripped.startswith('| --') or stripped.replace(' ', '').replace('-', '').replace('|', '').replace(':', '') == '':
+                # Table separator row - skip
+                in_table = True
+            elif stripped == '---' or stripped == '***' or stripped == '___':
+                line_info.append({'line': i, 'type': 'hr'})
+                in_table = False
+            elif stripped:
+                line_info.append({'line': i, 'type': 'p'})
+                in_table = False
+            else:
+                # Empty line
+                in_table = False
+
+        line_info_json = json.dumps(line_info)
+
         # Escape special characters for JavaScript template literal
         escaped_content = markdown_content.replace('\\', '\\\\')
         escaped_content = escaped_content.replace('`', '\\`')
@@ -687,6 +809,7 @@ class MarkdownViewer(QMainWindow):
         html = html.replace('$MARKED_JS_PATH$', self.marked_js_path)
         html = html.replace('$MERMAID_JS_PATH$', self.mermaid_js_path)
         html = html.replace('$MARKDOWN_CONTENT$', escaped_content)
+        html = html.replace('$LINE_INFO$', line_info_json)
         html = html.replace('$BACK_BUTTON_STYLE$', back_button_style)
 
         # Set base URL for relative links to work correctly
