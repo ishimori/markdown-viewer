@@ -1299,12 +1299,33 @@ class MarkdownViewer(QMainWindow):
         self._set_html_with_base(tab, html)
 
     def _refresh_current_tab(self):
-        """Refresh current file in current tab"""
+        """Refresh current file in current tab, preserving scroll position"""
         tab = self._get_current_tab()
         if tab and tab.current_file and os.path.exists(tab.current_file):
-            # Clear navigation history on refresh
-            tab.navigation_history.clear()
-            self._load_file(tab, tab.current_file)
+            # Get current scroll position before reloading
+            tab.web_view.page().runJavaScript(
+                "window.pageYOffset",
+                lambda scroll_y: self._do_refresh(tab, scroll_y)
+            )
+
+    def _do_refresh(self, tab: FolderTab, scroll_y):
+        """Perform refresh and restore scroll position"""
+        tab.navigation_history.clear()
+        self._load_file(tab, tab.current_file)
+
+        # Restore scroll position after page finishes loading
+        if scroll_y is not None and scroll_y > 0:
+            def on_load_finished(ok):
+                try:
+                    tab.web_view.loadFinished.disconnect(on_load_finished)
+                except TypeError:
+                    pass
+                if ok:
+                    # Delay for DOM rendering to complete before scrolling
+                    QTimer.singleShot(100, lambda: tab.web_view.page().runJavaScript(
+                        f"window.scrollTo(0, {int(scroll_y)})"
+                    ))
+            tab.web_view.loadFinished.connect(on_load_finished)
 
     def _toggle_overview(self):
         """Toggle overview box visibility"""
