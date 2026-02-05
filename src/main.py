@@ -7,6 +7,7 @@ import sys
 import os
 import json
 import csv
+import xml.etree.ElementTree as ET
 from io import StringIO
 from pathlib import Path
 from enum import Enum
@@ -48,6 +49,7 @@ class FileType(Enum):
     XML = "xml"
     PYTHON = "python"
     CSV = "csv"
+    CDXML = "cdxml"
     UNKNOWN = "unknown"
 
 
@@ -62,6 +64,7 @@ FILE_TYPE_MAP = {
     '.py': FileType.PYTHON,
     '.pyw': FileType.PYTHON,
     '.csv': FileType.CSV,
+    '.cdxml': FileType.CDXML,
 }
 
 
@@ -71,10 +74,190 @@ def detect_file_type(file_path: str) -> FileType:
     return FILE_TYPE_MAP.get(ext, FileType.UNKNOWN)
 
 
+# --- CDXML to SVG Converter ---
+
+ELEMENT_SYMBOLS = {
+    1: 'H', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F',
+    14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 35: 'Br', 53: 'I',
+}
+
+ELEMENT_COLORS = {
+    'O': '#e60000', 'N': '#0000e6', 'S': '#b8a000', 'P': '#ff8c00',
+    'F': '#1a8c1a', 'Cl': '#1a8c1a', 'Br': '#8b0000', 'I': '#6600aa',
+}
+
+
+def cdxml_to_svg(cdxml_content: str) -> tuple[str, int]:
+    """Convert CDXML content to SVG string.
+
+    Returns:
+        tuple: (svg_string, structure_count)
+    """
+    try:
+        root = ET.fromstring(cdxml_content)
+    except ET.ParseError:
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="50">'
+            '<text x="10" y="30" fill="#c62828" font-family="Arial">Error: Invalid CDXML</text></svg>',
+            0
+        )
+
+    atoms = {}   # id -> {x, y, element, label}
+    bonds = []   # [{begin, end, order}]
+    text_labels = []  # [{x, y, text}]
+    structure_count = 0
+
+    # Parse all fragments (chemical structures)
+    for fragment in root.iter('fragment'):
+        structure_count += 1
+        for n in fragment.findall('n'):
+            atom_id = n.get('id')
+            pos_parts = n.get('p', '0 0').split()
+            x, y = float(pos_parts[0]), float(pos_parts[1])
+            element_num = int(n.get('Element', '6'))
+
+            # Get label from <t><s> child elements
+            label = ''
+            t_elem = n.find('t')
+            if t_elem is not None:
+                label = ''.join(s.text or '' for s in t_elem.findall('s'))
+
+            # Auto-generate label for non-carbon atoms without explicit label
+            if not label and element_num != 6:
+                symbol = ELEMENT_SYMBOLS.get(element_num, '?')
+                num_h_attr = n.get('NumHydrogens')
+                if num_h_attr is not None:
+                    h = int(num_h_attr)
+                    label = symbol + ('H' + (str(h) if h > 1 else '') if h > 0 else '')
+                else:
+                    label = symbol
+
+            atoms[atom_id] = {'x': x, 'y': y, 'element': element_num, 'label': label}
+
+        for b in fragment.findall('b'):
+            bonds.append({
+                'begin': b.get('B'),
+                'end': b.get('E'),
+                'order': int(b.get('Order', '1')),
+            })
+
+    # Collect structure name labels (direct children of <group> or <page>)
+    for parent_tag in ('group', 'page'):
+        for parent in root.iter(parent_tag):
+            for t in parent.findall('t'):
+                pos_parts = t.get('p', '0 0').split()
+                x, y = float(pos_parts[0]), float(pos_parts[1])
+                text = ''.join(s.text or '' for s in t.findall('s'))
+                if text:
+                    text_labels.append({'x': x, 'y': y, 'text': text})
+
+    if not atoms:
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="50">'
+            '<text x="10" y="30" font-family="Arial" fill="#555">No structures found</text></svg>',
+            0
+        )
+
+    # Calculate bounding box with padding
+    padding = 25
+    all_x = [a['x'] for a in atoms.values()]
+    all_y = [a['y'] for a in atoms.values()]
+    if text_labels:
+        all_x.extend(l['x'] for l in text_labels)
+        all_y.extend(l['y'] for l in text_labels)
+
+    min_x = min(all_x) - padding
+    min_y = min(all_y) - padding
+    max_x = max(all_x) + padding
+    max_y = max(all_y) + padding + 10
+
+    vb_w = max_x - min_x
+    vb_h = max_y - min_y
+    scale = 4.0
+    svg_w = vb_w * scale
+    svg_h = vb_h * scale
+
+    svg = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" '
+        f'width="{svg_w:.0f}" height="{svg_h:.0f}" '
+        f'viewBox="{min_x:.2f} {min_y:.2f} {vb_w:.2f} {vb_h:.2f}">',
+        '<style>',
+        'text.atom { font-family: Arial, Helvetica, sans-serif; font-size: 11px; font-weight: bold; }',
+        'text.name { font-family: Arial, Helvetica, sans-serif; font-size: 11px; fill: #333; }',
+        'line.bond { stroke: #333; stroke-width: 1.2; stroke-linecap: round; }',
+        '</style>',
+    ]
+
+    # 1) Draw bonds
+    for bond in bonds:
+        a1 = atoms.get(bond['begin'])
+        a2 = atoms.get(bond['end'])
+        if not a1 or not a2:
+            continue
+
+        x1, y1 = a1['x'], a1['y']
+        x2, y2 = a2['x'], a2['y']
+        dx, dy = x2 - x1, y2 - y1
+        dist = (dx * dx + dy * dy) ** 0.5
+        if dist == 0:
+            continue
+        ux, uy = dx / dist, dy / dist
+
+        # Shorten towards labeled atoms so lines don't overlap text
+        shrink1 = len(a1['label']) * 3.5 if a1['label'] else 0
+        shrink2 = len(a2['label']) * 3.5 if a2['label'] else 0
+        bx1, by1 = x1 + ux * shrink1, y1 + uy * shrink1
+        bx2, by2 = x2 - ux * shrink2, y2 - uy * shrink2
+
+        if bond['order'] == 2:
+            nx, ny = -uy * 1.5, ux * 1.5
+            svg.append(f'<line class="bond" x1="{bx1+nx:.2f}" y1="{by1+ny:.2f}" x2="{bx2+nx:.2f}" y2="{by2+ny:.2f}"/>')
+            svg.append(f'<line class="bond" x1="{bx1-nx:.2f}" y1="{by1-ny:.2f}" x2="{bx2-nx:.2f}" y2="{by2-ny:.2f}"/>')
+        elif bond['order'] == 3:
+            nx, ny = -uy * 2.0, ux * 2.0
+            svg.append(f'<line class="bond" x1="{bx1:.2f}" y1="{by1:.2f}" x2="{bx2:.2f}" y2="{by2:.2f}"/>')
+            svg.append(f'<line class="bond" x1="{bx1+nx:.2f}" y1="{by1+ny:.2f}" x2="{bx2+nx:.2f}" y2="{by2+ny:.2f}"/>')
+            svg.append(f'<line class="bond" x1="{bx1-nx:.2f}" y1="{by1-ny:.2f}" x2="{bx2-nx:.2f}" y2="{by2-ny:.2f}"/>')
+        else:
+            svg.append(f'<line class="bond" x1="{bx1:.2f}" y1="{by1:.2f}" x2="{bx2:.2f}" y2="{by2:.2f}"/>')
+
+    # 2) White background rects behind atom labels (mask bond lines)
+    for atom in atoms.values():
+        if atom['label']:
+            w = len(atom['label']) * 7 + 4
+            h = 14
+            svg.append(
+                f'<rect x="{atom["x"] - w/2:.1f}" y="{atom["y"] - h/2:.1f}" '
+                f'width="{w}" height="{h}" fill="white"/>'
+            )
+
+    # 3) Atom labels
+    for atom in atoms.values():
+        if atom['label']:
+            symbol = ELEMENT_SYMBOLS.get(atom['element'], 'C')
+            color = ELEMENT_COLORS.get(symbol, '#333')
+            svg.append(
+                f'<text class="atom" x="{atom["x"]:.1f}" y="{atom["y"]:.1f}" '
+                f'text-anchor="middle" dominant-baseline="central" fill="{color}">'
+                f'{atom["label"]}</text>'
+            )
+
+    # 4) Structure name labels
+    for label in text_labels:
+        svg.append(
+            f'<text class="name" x="{label["x"]:.1f}" y="{label["y"]:.1f}" '
+            f'text-anchor="start" dominant-baseline="hanging">'
+            f'{label["text"]}</text>'
+        )
+
+    svg.append('</svg>')
+    return '\n'.join(svg), structure_count
+
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSplitter, QTreeView,
     QVBoxLayout, QHBoxLayout, QWidget, QToolBar, QFileDialog, QMessageBox,
-    QTabWidget, QTabBar, QLabel, QFrame, QMenu, QComboBox
+    QTabWidget, QTabBar, QLabel, QFrame, QMenu, QComboBox, QSizePolicy
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
@@ -146,6 +329,14 @@ QT_STYLES = {
         QTabBar::tab:hover:!selected {
             background: #bbdefb;
         }
+    """,
+    'path_label': """
+        QLabel {
+            color: #90a4ae;
+            font-family: 'Meiryo UI', 'Meiryo', sans-serif;
+            font-size: 11px;
+            padding: 0 8px;
+        }
     """
 }
 
@@ -158,6 +349,7 @@ class FileTypeIconModel(QFileSystemModel):
         FileType.XML: ('#FF9800', 'XML'),         # Orange
         FileType.PYTHON: ('#3776AB', 'PY'),       # Python blue
         FileType.CSV: ('#9C27B0', 'CSV'),         # Purple
+        FileType.CDXML: ('#E91E63', 'CDX'),       # Pink (chemistry)
     }
 
     def __init__(self, parent=None):
@@ -296,7 +488,7 @@ class FolderTab(QWidget):
     # Filter options: (display_name, filter_patterns or None for all)
     FILTER_OPTIONS = [
         ("Markdown only", ["*.md", "*.markdown"]),
-        ("All supported", ["*.md", "*.markdown", "*.xml", "*.xsl", "*.xslt", "*.xsd", "*.svg", "*.py", "*.pyw", "*.csv"]),
+        ("All supported", ["*.md", "*.markdown", "*.xml", "*.xsl", "*.xslt", "*.xsd", "*.svg", "*.py", "*.pyw", "*.csv", "*.cdxml"]),
         ("All files", None),
     ]
 
@@ -346,6 +538,7 @@ class FolderTab(QWidget):
         self.tree_view.setColumnHidden(2, True)
         self.tree_view.setColumnHidden(3, True)
         self.tree_view.setHeaderHidden(True)
+        self.tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         # Stats panel below tree view
         self.stats_panel = QFrame()
@@ -551,6 +744,17 @@ class MarkdownViewer(QMainWindow):
         toggle_overview_action.triggered.connect(self._toggle_overview)
         toolbar.addAction(toggle_overview_action)
 
+        # Spacer to push path label to the right
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+
+        # Path label for current file
+        self.path_label = QLabel("")
+        self.path_label.setStyleSheet(QT_STYLES['path_label'])
+        self.path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        toolbar.addWidget(self.path_label)
+
 
     def _setup_shortcuts(self):
         """Setup additional keyboard shortcuts"""
@@ -566,10 +770,10 @@ class MarkdownViewer(QMainWindow):
         prev_tab_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Tab"), self)
         prev_tab_shortcut.activated.connect(self._prev_tab)
 
-        # Zoom in (Ctrl++ or Ctrl+=)
-        zoom_in_shortcut = QShortcut(QKeySequence("Ctrl++"), self)
+        # Zoom in (Ctrl+= or Ctrl+Shift+=)
+        zoom_in_shortcut = QShortcut(QKeySequence("Ctrl+="), self)
         zoom_in_shortcut.activated.connect(self._zoom_in)
-        zoom_in_shortcut2 = QShortcut(QKeySequence("Ctrl+="), self)
+        zoom_in_shortcut2 = QShortcut(QKeySequence("Ctrl+Shift+="), self)
         zoom_in_shortcut2.activated.connect(self._zoom_in)
 
         # Zoom out (Ctrl+-)
@@ -620,6 +824,9 @@ class MarkdownViewer(QMainWindow):
         # Connect context menu for right-click
         tab.web_view.customContextMenuRequested.connect(
             lambda pos, t=tab: self._show_link_context_menu(t, pos)
+        )
+        tab.tree_view.customContextMenuRequested.connect(
+            lambda pos, t=tab: self._show_tree_context_menu(t, pos)
         )
 
         if folder_path:
@@ -683,12 +890,18 @@ class MarkdownViewer(QMainWindow):
         if tab:
             if tab.current_file:
                 self.setWindowTitle(f"{self.app_title} - {os.path.basename(tab.current_file)}")
+                dir_part = os.path.dirname(tab.current_file) + os.sep
+                file_part = os.path.basename(tab.current_file)
+                self.path_label.setText(f"{dir_part}<b>{file_part}</b>")
             elif tab.current_folder:
                 self.setWindowTitle(f"{self.app_title} - {tab.current_folder}")
+                self.path_label.setText(tab.current_folder)
             else:
                 self.setWindowTitle(self.app_title)
+                self.path_label.setText("")
         else:
             self.setWindowTitle(self.app_title)
+            self.path_label.setText("")
 
     def _update_tab_title(self, tab: FolderTab):
         """Update tab title"""
@@ -738,11 +951,22 @@ class MarkdownViewer(QMainWindow):
     def _render_markdown(self, tab: FolderTab, markdown_content: str):
         """Render markdown content in web view"""
         # Build line info for gutter (detect all significant lines)
+        # Each entry must correspond 1:1 with a rendered DOM element.
+        # Consecutive text lines are merged into one <p> by marked.js,
+        # so we must emit only one 'p' entry per paragraph block.
         import json
         lines = markdown_content.split('\n')
         line_info = []
         in_code_block = False
         in_table = False
+        in_paragraph = False
+
+        def _is_hr(s):
+            """Check if line is a horizontal rule (3+ of same char: -, *, _)"""
+            no_space = s.replace(' ', '')
+            return (len(no_space) >= 3
+                    and no_space[0] in '-*_'
+                    and all(c == no_space[0] for c in no_space))
 
         for i, line in enumerate(lines, 1):
             stripped = line.strip()
@@ -750,6 +974,7 @@ class MarkdownViewer(QMainWindow):
             # Track code blocks
             if stripped.startswith('```'):
                 in_code_block = not in_code_block
+                in_paragraph = False
                 line_info.append({'line': i, 'type': 'code_fence'})
                 continue
 
@@ -758,39 +983,54 @@ class MarkdownViewer(QMainWindow):
                 line_info.append({'line': i, 'type': 'code_line'})
                 continue
 
-            # Detect block types
-            if stripped.startswith('#'):
+            # Empty line resets paragraph/table state
+            if not stripped:
+                in_paragraph = False
+                in_table = False
+                continue
+
+            # Horizontal rule (check before list items to handle '* * *')
+            if _is_hr(stripped) and not in_table:
+                line_info.append({'line': i, 'type': 'hr'})
+                in_paragraph = False
+                in_table = False
+            # Headings
+            elif stripped.startswith('#'):
                 level = len(stripped) - len(stripped.lstrip('#'))
                 if 1 <= level <= 6:
                     line_info.append({'line': i, 'type': f'h{level}'})
+                    in_paragraph = False
                     in_table = False
-            elif stripped.startswith(('- ', '* ', '+ ')):
-                # Unordered list item
+            # Unordered list item
+            elif stripped.startswith(('- ', '* ', '+ ')) or stripped in ('- ', '* ', '+ ', '-', '*', '+'):
                 line_info.append({'line': i, 'type': 'li'})
+                in_paragraph = False
                 in_table = False
+            # Ordered list item
             elif stripped and stripped[0].isdigit() and '. ' in stripped[:4]:
-                # Ordered list item
                 line_info.append({'line': i, 'type': 'li'})
+                in_paragraph = False
                 in_table = False
+            # Blockquote line
             elif stripped.startswith('>'):
-                # Blockquote line
                 line_info.append({'line': i, 'type': 'quote'})
+                in_paragraph = False
                 in_table = False
+            # Table row
             elif stripped.startswith('|') and stripped.endswith('|'):
-                # Table row
-                line_info.append({'line': i, 'type': 'tr'})
-                in_table = True
-            elif in_table and stripped.startswith('|--') or stripped.startswith('| --') or stripped.replace(' ', '').replace('-', '').replace('|', '').replace(':', '') == '':
-                # Table separator row - skip
-                in_table = True
-            elif stripped == '---' or stripped == '***' or stripped == '___':
-                line_info.append({'line': i, 'type': 'hr'})
-                in_table = False
-            elif stripped:
-                line_info.append({'line': i, 'type': 'p'})
-                in_table = False
+                # Table separator row - skip (don't create entry)
+                sep_test = stripped.replace(' ', '').replace('-', '').replace('|', '').replace(':', '')
+                if sep_test == '':
+                    in_table = True
+                else:
+                    line_info.append({'line': i, 'type': 'tr'})
+                    in_table = True
+                in_paragraph = False
+            # Paragraph: only emit one entry per paragraph block
             else:
-                # Empty line
+                if not in_paragraph:
+                    line_info.append({'line': i, 'type': 'p'})
+                    in_paragraph = True
                 in_table = False
 
         line_info_json = json.dumps(line_info)
@@ -799,6 +1039,12 @@ class MarkdownViewer(QMainWindow):
         escaped_content = markdown_content.replace('\\', '\\\\')
         escaped_content = escaped_content.replace('`', '\\`')
         escaped_content = escaped_content.replace('$', '\\$')
+
+        # Raw source lines for clipboard copy (JSON-encoded)
+        raw_lines_json = json.dumps(markdown_content.split('\n'), ensure_ascii=False)
+
+        # File path for clipboard copy
+        file_path = (tab.current_file or '').replace('\\', '\\\\')
 
         # Back button visibility
         back_button_style = "display: flex;" if tab.navigation_history else "display: none;"
@@ -810,6 +1056,8 @@ class MarkdownViewer(QMainWindow):
         html = html.replace('$MERMAID_JS_PATH$', self.mermaid_js_path)
         html = html.replace('$MARKDOWN_CONTENT$', escaped_content)
         html = html.replace('$LINE_INFO$', line_info_json)
+        html = html.replace('$RAW_LINES$', raw_lines_json)
+        html = html.replace('$FILE_PATH$', file_path)
         html = html.replace('$BACK_BUTTON_STYLE$', back_button_style)
 
         # Set base URL for relative links to work correctly
@@ -836,6 +1084,8 @@ class MarkdownViewer(QMainWindow):
                 self._render_code(tab, content, 'python', 'Python Script')
             elif file_type == FileType.CSV:
                 self._render_csv(tab, content)
+            elif file_type == FileType.CDXML:
+                self._render_cdxml(tab, content)
             else:
                 # Plain text fallback
                 self._render_code(tab, content, 'plaintext', 'Text File')
@@ -999,6 +1249,55 @@ class MarkdownViewer(QMainWindow):
 
         self._set_html_with_base(tab, html)
 
+    def _render_cdxml(self, tab: FolderTab, content: str):
+        """Render CDXML chemical structure as SVG"""
+        svg_content, structure_count = cdxml_to_svg(content)
+        struct_text = f"{structure_count} structure{'s' if structure_count != 1 else ''}"
+
+        html = f'''<!DOCTYPE html>
+<html><head>
+    <meta charset="UTF-8">
+    <style>{self.css_content}</style>
+    <style>
+        body {{ margin: 0; padding: 20px; background: var(--bg-color, #f8faff); }}
+        .cdxml-header {{
+            background: linear-gradient(135deg, #E91E63 0%, #C2185B 100%);
+            color: white; padding: 12px 20px;
+            border-radius: 6px; font-weight: 600; margin-bottom: 16px;
+            display: flex; align-items: center; gap: 8px;
+        }}
+        .file-badge {{
+            background: rgba(255,255,255,0.2); padding: 2px 8px;
+            border-radius: 4px; font-size: 11px;
+        }}
+        .cdxml-stats {{
+            font-size: 12px; font-weight: normal; opacity: 0.9; margin-left: auto;
+        }}
+        .structure-container {{
+            background: white;
+            border-radius: 6px;
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            text-align: center;
+            overflow: auto;
+        }}
+        .structure-container svg {{
+            max-width: 100%;
+            height: auto;
+        }}
+    </style>
+</head><body>
+    <div class="cdxml-header">
+        <span class="file-badge">CDXML</span>
+        <span>Chemical Structure</span>
+        <span class="cdxml-stats">{struct_text}</span>
+    </div>
+    <div class="structure-container">
+        {svg_content}
+    </div>
+</body></html>'''
+        self._set_html_with_base(tab, html)
+
     def _refresh_current_tab(self):
         """Refresh current file in current tab"""
         tab = self._get_current_tab()
@@ -1154,6 +1453,23 @@ class MarkdownViewer(QMainWindow):
                 self._on_link_clicked(tab, url, True)
         except Exception as e:
             print(f"Error handling context menu: {e}")
+
+    def _show_tree_context_menu(self, tab: FolderTab, pos):
+        """Show context menu for right-click on file tree"""
+        index = tab.tree_view.indexAt(pos)
+        if not index.isValid():
+            return
+
+        file_path = tab.file_model.filePath(index)
+        if not file_path:
+            return
+
+        menu = QMenu(self)
+        copy_path_action = menu.addAction("Copy Path")
+
+        action = menu.exec(tab.tree_view.mapToGlobal(pos))
+        if action == copy_path_action:
+            QApplication.clipboard().setText(file_path)
 
     def open_file(self, file_path: str):
         """Open a specific file"""

@@ -57,10 +57,40 @@
             text-align: right;
             padding-right: 6px;
             box-sizing: border-box;
+            cursor: pointer;
+        }
+        .gutter-line:hover {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .gutter-line.selected {
+            background: #bbdefb;
+            color: #1565c0;
         }
         .gutter-line.heading {
             font-weight: bold;
             color: #1976d2;
+        }
+        /* Copy toast notification */
+        #copy-toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: rgba(13, 71, 161, 0.9);
+            color: white;
+            padding: 8px 20px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: "Meiryo UI", "Meiryo", sans-serif;
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            pointer-events: none;
+        }
+        #copy-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
         }
         /* Adjust body for gutter */
         body {
@@ -89,6 +119,7 @@
     </button>
 
     <div id="content"></div>
+    <div id="copy-toast"></div>
 
     <!-- Overview Sidebar (Right) -->
     <div id="sidebar-container" class="sidebar-container">
@@ -115,6 +146,65 @@
 
         // Line info from Python
         const lineInfo = $LINE_INFO$;
+        const rawLines = $RAW_LINES$;
+        const filePath = "$FILE_PATH$";
+
+        // Gutter click state
+        let gutterFirstLine = null;
+        let gutterSelectedElements = [];
+
+        function clearGutterSelection() {
+            gutterSelectedElements.forEach(el => el.classList.remove('selected'));
+            gutterSelectedElements = [];
+            gutterFirstLine = null;
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('copy-toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 1500);
+        }
+
+        function getGutterLineNumber(el) {
+            return parseInt(el.textContent, 10);
+        }
+
+        function selectGutterRange(startLine, endLine) {
+            clearGutterSelection();
+            const gutterLines = document.querySelectorAll('.gutter-line');
+            gutterLines.forEach(el => {
+                const num = getGutterLineNumber(el);
+                if (num >= startLine && num <= endLine) {
+                    el.classList.add('selected');
+                    gutterSelectedElements.push(el);
+                }
+            });
+        }
+
+        function copyToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        }
+
+        function copyLineRange(startLine, endLine) {
+            // Extract raw source lines (1-indexed to 0-indexed)
+            const selectedLines = rawLines.slice(startLine - 1, endLine);
+            const lineRef = startLine === endLine
+                ? filePath + ':' + startLine
+                : filePath + ':' + startLine + '-' + endLine;
+            const text = lineRef + '\n' + selectedLines.join('\n');
+
+            copyToClipboard(text);
+            const count = endLine - startLine + 1;
+            showToast('Copied ' + count + ' line' + (count > 1 ? 's' : ''));
+        }
 
         // Configure mermaid
         if (typeof mermaid !== 'undefined') {
@@ -148,8 +238,11 @@
             const markdown = `$MARKDOWN_CONTENT$`;
             try {
                 document.getElementById('content').innerHTML = marked.parse(markdown);
-                // Build gutter after rendering
-                setTimeout(buildGutter, 50);
+                // Build gutter after rendering, then attach click handlers
+                setTimeout(function() {
+                    buildGutter();
+                    attachGutterClickHandlers();
+                }, 50);
             } catch (e) {
                 console.error('DEBUG: marked.parse error:', e);
             }
@@ -237,6 +330,7 @@
                         gutterLine.className += ' heading';
                     }
                     gutterLine.textContent = info.line;
+                    gutterLine.dataset.line = info.line;
                     gutterLine.style.top = (top - 30) + 'px';
 
                     gutterContent.appendChild(gutterLine);
@@ -252,6 +346,53 @@
                             infoIndex++;
                         }
                     }
+                }
+            });
+        }
+
+        // Attach click handlers to gutter lines
+        function attachGutterClickHandlers() {
+            const gutterLines = document.querySelectorAll('.gutter-line');
+            gutterLines.forEach(el => {
+                el.addEventListener('click', function(e) {
+                    const clickedLine = getGutterLineNumber(this);
+
+                    if (e.shiftKey && gutterFirstLine !== null) {
+                        // Shift+click: select range
+                        const startLine = Math.min(gutterFirstLine, clickedLine);
+                        const endLine = Math.max(gutterFirstLine, clickedLine);
+                        selectGutterRange(startLine, endLine);
+                        // Find the actual end: line before next gutter entry after endLine
+                        const allNums = Array.from(document.querySelectorAll('.gutter-line'))
+                            .map(el => getGutterLineNumber(el)).sort((a, b) => a - b);
+                        const endIdx = allNums.indexOf(endLine);
+                        const actualEnd = (endIdx < allNums.length - 1)
+                            ? allNums[endIdx + 1] - 1
+                            : rawLines.length;
+                        copyLineRange(startLine, actualEnd);
+                    } else {
+                        // Single click: select one block
+                        clearGutterSelection();
+                        this.classList.add('selected');
+                        gutterSelectedElements.push(this);
+                        gutterFirstLine = clickedLine;
+
+                        // Find end of this block (line before next gutter entry)
+                        const allNums = Array.from(document.querySelectorAll('.gutter-line'))
+                            .map(el => getGutterLineNumber(el)).sort((a, b) => a - b);
+                        const idx = allNums.indexOf(clickedLine);
+                        const endLine = (idx < allNums.length - 1)
+                            ? allNums[idx + 1] - 1
+                            : rawLines.length;
+                        copyLineRange(clickedLine, endLine);
+                    }
+                });
+            });
+
+            // Click outside gutter to clear selection
+            document.addEventListener('click', function(e) {
+                if (!e.target.classList.contains('gutter-line')) {
+                    clearGutterSelection();
                 }
             });
         }

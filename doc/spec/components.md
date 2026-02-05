@@ -14,6 +14,7 @@ Qt ウィジェット用のスタイルシート定数。SSOT（Single Source of
 | `stats_name` | 統計項目名ラベル |
 | `stats_value` | 統計値ラベル |
 | `tab_widget` | タブウィジェット |
+| `path_label` | ツールバーのファイルパス表示ラベル |
 
 ## クラス一覧
 
@@ -42,6 +43,7 @@ Qt ウィジェット用のスタイルシート定数。SSOT（Single Source of
 | XML | XMLファイル |
 | PYTHON | Pythonファイル |
 | CSV | CSVファイル |
+| CDXML | ChemDraw CDXMLファイル（化学構造） |
 | UNKNOWN | 未対応ファイル |
 
 ### 拡張子マッピング
@@ -58,6 +60,7 @@ FILE_TYPE_MAP = {
     '.py': FileType.PYTHON,
     '.pyw': FileType.PYTHON,
     '.csv': FileType.CSV,
+    '.cdxml': FileType.CDXML,
 }
 ```
 
@@ -77,6 +80,7 @@ BADGE_CONFIG = {
     FileType.XML: ('#FF9800', 'XML'),
     FileType.PYTHON: ('#3776AB', 'PY'),
     FileType.CSV: ('#9C27B0', 'CSV'),
+    FileType.CDXML: ('#E91E63', 'CDX'),
 }
 ```
 
@@ -311,6 +315,7 @@ QSplitter (horizontal)
 | tabs | QTabWidget | タブコンテナ |
 | css | str | 読み込んだスタイルシート |
 | session_manager | SessionManager | セッション管理インスタンス |
+| path_label | QLabel | ツールバー上のファイルパス表示ラベル |
 
 ### メソッド
 
@@ -334,12 +339,17 @@ QSplitter (horizontal)
 
 #### `_update_window_title(self) -> None`
 
-ウィンドウタイトルを現在のタブ状態に基づいて更新（SSOT原則）。
+ウィンドウタイトルとツールバーのパスラベルを現在のタブ状態に基づいて更新（SSOT原則）。
 
 **タイトル形式:**
 - ファイル選択時: `Markdown Viewer - {ファイル名}`
 - フォルダ選択時: `Markdown Viewer - {フォルダパス}`
 - 未選択時: `Markdown Viewer`
+
+**パスラベル:**
+- ファイル選択時: フルパスを表示
+- フォルダ選択時: フォルダパスを表示
+- 未選択時: 空文字
 
 #### `_setup_ui(self) -> None`
 
@@ -358,6 +368,7 @@ QSplitter (horizontal)
 | New Tab | `_add_new_tab()` |
 | Reload | `_reload_current()` |
 | Toggle Outline | `_toggle_outline()` |
+| パスラベル | 現在のファイルのフルパスを右寄せで表示 |
 
 #### `_setup_shortcuts(self) -> None`
 
@@ -459,6 +470,45 @@ QSplitter (horizontal)
 #### `_add_welcome_tab(self) -> None`
 
 ウェルカムタブを追加。キーボードショートカット一覧を表示。
+
+---
+
+#### `_render_cdxml(self, tab: FolderTab, content: str) -> None`
+
+CDXML化学構造ファイルをSVG画像としてレンダリング。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| tab | FolderTab | 対象タブ |
+| content | str | CDXMLファイルの内容 |
+
+**処理フロー:**
+1. `cdxml_to_svg()` でSVGを生成
+2. HTMLテンプレート（ヘッダーバッジ＋SVGコンテナ）に埋め込み
+3. WebViewに表示
+
+---
+
+## モジュールレベル関数
+
+### `cdxml_to_svg(cdxml_content: str) -> tuple[str, int]`
+
+CDXML（ChemDraw XML）を解析し、化学構造のSVG画像を生成する。外部依存なし（`xml.etree.ElementTree`のみ使用）。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| cdxml_content | str | CDXMLファイルの文字列 |
+
+| 戻り値 | 説明 |
+|--------|------|
+| tuple[str, int] | (SVG文字列, 構造体数) |
+
+**対応要素:**
+| CDXML要素 | SVG描画 |
+|-----------|---------|
+| `<n>` (原子) | テキストラベル（非C原子のみ） |
+| `<b>` (結合) | 線（Order=1:単線, 2:二重線, 3:三重線） |
+| `<t>` (テキスト) | 構造名ラベル |
 
 ---
 
