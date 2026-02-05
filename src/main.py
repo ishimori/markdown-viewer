@@ -261,7 +261,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
-from PyQt6.QtCore import Qt, QModelIndex, QTimer, QUrl, pyqtSignal, QRect
+from PyQt6.QtCore import Qt, QModelIndex, QTimer, QUrl, pyqtSignal, QRect, QFileSystemWatcher
 from PyQt6.QtGui import (
     QAction, QFileSystemModel, QShortcut, QKeySequence, QCloseEvent,
     QDesktopServices, QPainter, QColor, QFont, QBrush, QPixmap, QIcon
@@ -664,6 +664,16 @@ class MarkdownViewer(QMainWindow):
         self.html_template = ""
         self.tab_widget = None
         self.session_manager = SessionManager()
+        self._pending_load_finished_handler = None  # Track current loadFinished handler
+
+        # File watcher for auto-reload
+        self.file_watcher = QFileSystemWatcher()
+        self.file_watcher.fileChanged.connect(self._on_file_changed)
+        self._pending_reload_paths = set()
+        self._reload_timer = QTimer()
+        self._reload_timer.setSingleShot(True)
+        self._reload_timer.setInterval(300)
+        self._reload_timer.timeout.connect(self._process_pending_reloads)
 
         self._load_resources()
         self._setup_ui()
@@ -862,6 +872,7 @@ class MarkdownViewer(QMainWindow):
             self.tab_widget.setTabText(0, "New Tab")
             self._render_markdown(tab, "# Welcome to Markdown Viewer\n\nOpen a folder to get started.")
             self._update_window_title()
+        self._update_file_watch()
 
     def _close_current_tab(self):
         """Close currently active tab"""
@@ -1071,6 +1082,7 @@ class MarkdownViewer(QMainWindow):
 
     def _load_file(self, tab: FolderTab, file_path: str):
         """Load and render file based on type"""
+        self._update_file_watch()
         file_type = detect_file_type(file_path)
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -1302,20 +1314,32 @@ class MarkdownViewer(QMainWindow):
         """Refresh current file in current tab, preserving scroll position"""
         tab = self._get_current_tab()
         if tab and tab.current_file and os.path.exists(tab.current_file):
-            # Get current scroll position before reloading
-            tab.web_view.page().runJavaScript(
-                "window.pageYOffset",
-                lambda scroll_y: self._do_refresh(tab, scroll_y)
-            )
+            tab.navigation_history.clear()
+            self._reload_with_scroll(tab)
 
-    def _do_refresh(self, tab: FolderTab, scroll_y):
-        """Perform refresh and restore scroll position"""
-        tab.navigation_history.clear()
+    def _reload_with_scroll(self, tab: FolderTab):
+        """Reload tab's current file preserving scroll position"""
+        tab.web_view.page().runJavaScript(
+            "window.pageYOffset",
+            lambda scroll_y, t=tab: self._do_reload(t, scroll_y)
+        )
+
+    def _do_reload(self, tab: FolderTab, scroll_y):
+        """Perform reload and restore scroll position"""
+        # Disconnect previous handler to prevent stacking
+        if self._pending_load_finished_handler:
+            try:
+                tab.web_view.loadFinished.disconnect(self._pending_load_finished_handler)
+            except TypeError:
+                pass
+            self._pending_load_finished_handler = None
+
         self._load_file(tab, tab.current_file)
 
         # Restore scroll position after page finishes loading
         if scroll_y is not None and scroll_y > 0:
             def on_load_finished(ok):
+                self._pending_load_finished_handler = None
                 try:
                     tab.web_view.loadFinished.disconnect(on_load_finished)
                 except TypeError:
@@ -1325,7 +1349,43 @@ class MarkdownViewer(QMainWindow):
                     QTimer.singleShot(100, lambda: tab.web_view.page().runJavaScript(
                         f"window.scrollTo(0, {int(scroll_y)})"
                     ))
+            self._pending_load_finished_handler = on_load_finished
             tab.web_view.loadFinished.connect(on_load_finished)
+
+    # --- File Watcher (auto-reload) ---
+
+    def _update_file_watch(self):
+        """Sync file watcher with currently open files across all tabs"""
+        watched = set(self.file_watcher.files())
+        needed = set()
+        for i in range(self.tab_widget.count()):
+            tab = self.tab_widget.widget(i)
+            if tab.current_file:
+                needed.add(tab.current_file)
+        to_remove = watched - needed
+        if to_remove:
+            self.file_watcher.removePaths(list(to_remove))
+        to_add = needed - watched
+        if to_add:
+            self.file_watcher.addPaths(list(to_add))
+
+    def _on_file_changed(self, path: str):
+        """Handle file change notification (debounced)"""
+        self._pending_reload_paths.add(path)
+        self._reload_timer.start()
+        # Re-add path to watcher (some OS remove it after change)
+        if os.path.exists(path) and path not in self.file_watcher.files():
+            self.file_watcher.addPath(path)
+
+    def _process_pending_reloads(self):
+        """Process pending file reloads after debounce"""
+        paths = self._pending_reload_paths.copy()
+        self._pending_reload_paths.clear()
+        for path in paths:
+            for i in range(self.tab_widget.count()):
+                tab = self.tab_widget.widget(i)
+                if tab.current_file == path and os.path.exists(path):
+                    self._reload_with_scroll(tab)
 
     def _toggle_overview(self):
         """Toggle overview box visibility"""
