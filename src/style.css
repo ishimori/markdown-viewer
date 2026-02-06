@@ -265,8 +265,27 @@ img {
 
 /* Task lists */
 input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
     margin-right: 8px;
     vertical-align: middle;
+    cursor: pointer;
+}
+
+/* Checked checkbox - blue accent color */
+input[type="checkbox"]:checked {
+    accent-color: #1976d2;
+}
+
+/* Task list item containing checked checkbox - gray text */
+li:has(input[type="checkbox"]:checked) {
+    color: #888;
+}
+
+/* Strikethrough and dimmed text for completed tasks */
+input[type="checkbox"]:checked ~ * {
+    text-decoration: line-through;
+    opacity: 0.65;
 }
 
 /* Definition lists */
