@@ -915,6 +915,61 @@ class SessionManager:
         return session_data.get('search_history', [])
 
 
+class CollapsibleSection(QWidget):
+    """A collapsible section widget with header and content"""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.is_collapsed = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Header button
+        self.toggle_button = QPushButton(f"{title}  ▼")
+        self.toggle_button.setStyleSheet("""
+            QPushButton {
+                text-align: left;
+                padding: 6px 8px;
+                background: #e3f2fd;
+                border: none;
+                font-weight: 600;
+                font-size: 11px;
+                color: #1976d2;
+            }
+            QPushButton:hover {
+                background: #bbdefb;
+            }
+        """)
+        self.toggle_button.clicked.connect(self.toggle)
+        layout.addWidget(self.toggle_button)
+
+        # Content container
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(8, 4, 8, 4)
+        self.content_layout.setSpacing(4)
+        layout.addWidget(self.content_widget)
+
+    def toggle(self):
+        """Toggle collapsed state"""
+        self.is_collapsed = not self.is_collapsed
+        self.content_widget.setVisible(not self.is_collapsed)
+        # Update arrow direction
+        title = self.toggle_button.text().rsplit('  ', 1)[0]
+        arrow = "▶" if self.is_collapsed else "▼"
+        self.toggle_button.setText(f"{title}  {arrow}")
+
+    def add_widget(self, widget):
+        """Add widget to content area"""
+        self.content_layout.addWidget(widget)
+
+    def add_layout(self, layout):
+        """Add layout to content area"""
+        self.content_layout.addLayout(layout)
+
+
 class FolderTab(QWidget):
     """A single folder tab containing tree view and web view"""
 
@@ -935,6 +990,7 @@ class FolderTab(QWidget):
         self.web_page = None
         self.stats_panel = None
         self.stats_labels = {}
+        self.file_info_labels = {}  # File metadata labels
         self.filter_combo = None
         self.navigation_history = []  # Stack for back navigation
         # Search panel components
@@ -1003,6 +1059,137 @@ class FolderTab(QWidget):
 
         return search_panel
 
+    def _create_inspector_panel(self):
+        """Create enhanced file inspector panel with collapsible sections"""
+        inspector = QFrame()
+        inspector.setStyleSheet(QT_STYLES['stats_panel'])
+        inspector_layout = QVBoxLayout(inspector)
+        inspector_layout.setContentsMargins(4, 4, 4, 4)
+        inspector_layout.setSpacing(2)
+
+        # File Info Section (collapsible)
+        file_info_section = CollapsibleSection("File Info")
+        self.file_info_labels['modified'] = QLabel("-")
+        self.file_info_labels['encoding'] = QLabel("-")
+        self.file_info_labels['readonly'] = QLabel("-")
+
+        for key, icon, label in [
+            ('modified', '📅', 'Modified:'),
+            ('encoding', '📝', 'Encoding:'),
+            ('readonly', '🔒', 'Read-only:')
+        ]:
+            row = QHBoxLayout()
+            row.setSpacing(4)
+            name_label = QLabel(f"{icon} {label}")
+            name_label.setStyleSheet("font-size: 10px; color: #555;")
+            value_label = self.file_info_labels[key]
+            value_label.setStyleSheet("font-size: 10px; color: #000; font-weight: 600;")
+            row.addWidget(name_label)
+            row.addStretch()
+            row.addWidget(value_label)
+            file_info_section.add_layout(row)
+
+        inspector_layout.addWidget(file_info_section)
+
+        # Stats Section (collapsible)
+        stats_section = CollapsibleSection("Stats")
+        for key, label in [("lines", "Lines"), ("chars", "Chars"), ("words", "Words"), ("time", "Read"), ("size", "Size")]:
+            row = QHBoxLayout()
+            row.setSpacing(4)
+            name_label = QLabel(f"{label}:")
+            name_label.setStyleSheet(QT_STYLES['stats_name'])
+            value_label = QLabel("-")
+            value_label.setStyleSheet(QT_STYLES['stats_value'])
+            row.addWidget(name_label)
+            row.addStretch()
+            row.addWidget(value_label)
+            stats_section.add_layout(row)
+            self.stats_labels[key] = value_label
+
+        inspector_layout.addWidget(stats_section)
+
+        # Quick Actions Section (always visible)
+        actions_header = QLabel("Quick Actions")
+        actions_header.setStyleSheet("""
+            padding: 6px 8px;
+            background: #e3f2fd;
+            font-weight: 600;
+            font-size: 11px;
+            color: #1976d2;
+        """)
+        inspector_layout.addWidget(actions_header)
+
+        # Quick action buttons
+        actions_layout = QVBoxLayout()
+        actions_layout.setSpacing(2)
+        actions_layout.setContentsMargins(4, 4, 4, 4)
+
+        button_style = """
+            QPushButton {
+                text-align: left;
+                padding: 6px 8px;
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 3px;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background: #f5f5f5;
+                border-color: #1976d2;
+            }
+        """
+
+        copy_path_btn = QPushButton("📋 Copy Path")
+        copy_path_btn.setStyleSheet(button_style)
+        copy_path_btn.clicked.connect(self._quick_action_copy_path)
+        actions_layout.addWidget(copy_path_btn)
+
+        show_explorer_btn = QPushButton("📂 Show in Explorer")
+        show_explorer_btn.setStyleSheet(button_style)
+        show_explorer_btn.clicked.connect(self._quick_action_show_explorer)
+        actions_layout.addWidget(show_explorer_btn)
+
+        open_editor_btn = QPushButton("✏️ Open in Editor")
+        open_editor_btn.setStyleSheet(button_style)
+        open_editor_btn.clicked.connect(self._quick_action_open_editor)
+        actions_layout.addWidget(open_editor_btn)
+
+        copy_md_link_btn = QPushButton("🔗 Copy MD Link")
+        copy_md_link_btn.setStyleSheet(button_style)
+        copy_md_link_btn.clicked.connect(self._quick_action_copy_md_link)
+        actions_layout.addWidget(copy_md_link_btn)
+
+        inspector_layout.addLayout(actions_layout)
+
+        inspector_layout.addStretch()
+        return inspector
+
+    def _quick_action_copy_path(self):
+        """Copy current file path to clipboard"""
+        if self.current_file:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(self.current_file)
+
+    def _quick_action_show_explorer(self):
+        """Open file location in Windows Explorer"""
+        if self.current_file and os.path.exists(self.current_file):
+            # Windows: select file in Explorer
+            os.startfile(os.path.dirname(self.current_file))
+
+    def _quick_action_open_editor(self):
+        """Open file in default editor"""
+        if self.current_file and os.path.exists(self.current_file):
+            os.startfile(self.current_file)
+
+    def _quick_action_copy_md_link(self):
+        """Copy markdown link format to clipboard"""
+        if self.current_file:
+            filename = os.path.basename(self.current_file)
+            # Create relative or absolute markdown link
+            md_link = f"[{filename}]({self.current_file.replace(os.sep, '/')})"
+            clipboard = QApplication.clipboard()
+            clipboard.setText(md_link)
+
     def _setup_ui(self):
         """Setup splitter layout for this tab"""
         layout = QVBoxLayout(self)
@@ -1041,32 +1228,8 @@ class FolderTab(QWidget):
         self.tree_view.setHeaderHidden(True)
         self.tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
-        # Stats panel below tree view
-        self.stats_panel = QFrame()
-        self.stats_panel.setStyleSheet(QT_STYLES['stats_panel'])
-        stats_layout = QVBoxLayout(self.stats_panel)
-        stats_layout.setContentsMargins(8, 8, 8, 8)
-        stats_layout.setSpacing(4)
-
-        # Stats header
-        header = QLabel("Stats")
-        header.setStyleSheet(QT_STYLES['stats_header'])
-        stats_layout.addWidget(header)
-
-        # Stats rows
-        for key, label in [("lines", "Lines"), ("chars", "Chars"), ("words", "Words"), ("time", "Read"), ("size", "Size")]:
-            row = QHBoxLayout()
-            row.setSpacing(4)
-            name_label = QLabel(f"{label}:")
-            name_label.setStyleSheet(QT_STYLES['stats_name'])
-            value_label = QLabel("-")
-            value_label.setStyleSheet(QT_STYLES['stats_value'])
-            value_label.setProperty("class", "value")
-            row.addWidget(name_label)
-            row.addStretch()
-            row.addWidget(value_label)
-            stats_layout.addLayout(row)
-            self.stats_labels[key] = value_label
+        # File Inspector panel below tree view (replaces simple stats panel)
+        self.stats_panel = self._create_inspector_panel()
 
         left_layout.addWidget(self.tree_view, 1)
         left_layout.addWidget(self.stats_panel)
@@ -1107,6 +1270,33 @@ class FolderTab(QWidget):
         self.stats_labels["words"].setText(f"{words:,}")
         self.stats_labels["time"].setText(f"~{read_time} min")
         self.stats_labels["size"].setText(f"{size_kb:.1f} KB")
+
+    def update_file_info(self):
+        """Update file info panel with current file metadata"""
+        if not self.current_file or not os.path.exists(self.current_file):
+            self.file_info_labels['modified'].setText("-")
+            self.file_info_labels['encoding'].setText("-")
+            self.file_info_labels['readonly'].setText("-")
+            return
+
+        try:
+            # Get file modification time
+            mtime = os.path.getmtime(self.current_file)
+            from datetime import datetime
+            mod_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+            self.file_info_labels['modified'].setText(mod_date)
+
+            # Detect encoding (assume UTF-8 for now)
+            self.file_info_labels['encoding'].setText("UTF-8")
+
+            # Check if readonly
+            is_readonly = not os.access(self.current_file, os.W_OK)
+            self.file_info_labels['readonly'].setText("Yes" if is_readonly else "No")
+        except Exception:
+            # If any error, just show dashes
+            self.file_info_labels['modified'].setText("-")
+            self.file_info_labels['encoding'].setText("-")
+            self.file_info_labels['readonly'].setText("-")
 
     def set_folder(self, folder_path: str):
         """Set the root folder for this tab"""
@@ -1728,6 +1918,7 @@ class MarkdownViewer(QMainWindow):
                 self._render_code(tab, content, 'plaintext', 'Text File')
 
             tab.update_stats(content)
+            tab.update_file_info()
         except UnicodeDecodeError:
             QMessageBox.warning(
                 self, "Cannot Open File",
