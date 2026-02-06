@@ -1269,6 +1269,14 @@ class MarkdownViewer(QMainWindow):
         self.bookmark_action.triggered.connect(self._toggle_bookmark_current_file)
         toolbar.addAction(self.bookmark_action)
 
+        toolbar.addSeparator()
+
+        # Help action
+        help_action = QAction("❓ Help", self)
+        help_action.setShortcut("F1")
+        help_action.triggered.connect(self._show_help)
+        toolbar.addAction(help_action)
+
         # Spacer to push path label to the right
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -1351,6 +1359,37 @@ class MarkdownViewer(QMainWindow):
         tab = self._get_current_tab()
         if tab and tab.navigation_history:
             self._navigate_back(tab)
+
+    def _show_help(self):
+        """Show help page by opening HELP.md"""
+        # Get path to HELP.md in project root
+        help_path = get_resource_path("../HELP.md")
+
+        # If not found in resource path, try current directory
+        if not help_path.exists():
+            help_path = Path(__file__).parent.parent / "HELP.md"
+
+        # If still not found, show error
+        if not help_path.exists():
+            QMessageBox.warning(
+                self, "Help Not Found",
+                "Help file (HELP.md) not found.\n\n"
+                "Please ensure HELP.md exists in the application directory."
+            )
+            return
+
+        # Open help file in current tab or new tab
+        help_file = str(help_path.resolve())
+        tab = self._get_current_tab()
+
+        if tab and not tab.current_file and not tab.current_folder:
+            # Current tab is empty, use it
+            tab.current_file = help_file
+            self._load_file(tab, help_file)
+            self._update_window_title()
+        else:
+            # Open in new tab
+            self.open_file(help_file)
 
     def _zoom_in(self):
         """Increase zoom level of current tab's web view"""
