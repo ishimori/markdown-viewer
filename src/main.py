@@ -10,6 +10,7 @@ import csv
 import xml.etree.ElementTree as ET
 import re
 import time
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from enum import Enum
@@ -991,6 +992,7 @@ class FolderTab(QWidget):
         self.stats_panel = None
         self.stats_labels = {}
         self.file_info_labels = {}  # File metadata labels
+        self.quick_action_buttons = []  # Quick action button references
         self.filter_combo = None
         self.navigation_history = []  # Stack for back navigation
         # Search panel components
@@ -1142,22 +1144,30 @@ class FolderTab(QWidget):
         copy_path_btn = QPushButton("📋 Copy Path")
         copy_path_btn.setStyleSheet(button_style)
         copy_path_btn.clicked.connect(self._quick_action_copy_path)
+        copy_path_btn.setEnabled(False)  # Initially disabled
         actions_layout.addWidget(copy_path_btn)
+        self.quick_action_buttons.append(copy_path_btn)
 
         show_explorer_btn = QPushButton("📂 Show in Explorer")
         show_explorer_btn.setStyleSheet(button_style)
         show_explorer_btn.clicked.connect(self._quick_action_show_explorer)
+        show_explorer_btn.setEnabled(False)  # Initially disabled
         actions_layout.addWidget(show_explorer_btn)
+        self.quick_action_buttons.append(show_explorer_btn)
 
         open_editor_btn = QPushButton("✏️ Open in Editor")
         open_editor_btn.setStyleSheet(button_style)
         open_editor_btn.clicked.connect(self._quick_action_open_editor)
+        open_editor_btn.setEnabled(False)  # Initially disabled
         actions_layout.addWidget(open_editor_btn)
+        self.quick_action_buttons.append(open_editor_btn)
 
         copy_md_link_btn = QPushButton("🔗 Copy MD Link")
         copy_md_link_btn.setStyleSheet(button_style)
         copy_md_link_btn.clicked.connect(self._quick_action_copy_md_link)
+        copy_md_link_btn.setEnabled(False)  # Initially disabled
         actions_layout.addWidget(copy_md_link_btn)
+        self.quick_action_buttons.append(copy_md_link_btn)
 
         inspector_layout.addLayout(actions_layout)
 
@@ -1166,29 +1176,52 @@ class FolderTab(QWidget):
 
     def _quick_action_copy_path(self):
         """Copy current file path to clipboard"""
-        if self.current_file:
+        if not self.current_file:
+            return
+        try:
             clipboard = QApplication.clipboard()
             clipboard.setText(self.current_file)
+        except Exception as e:
+            print(f"Failed to copy path to clipboard: {e}")
 
     def _quick_action_show_explorer(self):
-        """Open file location in Windows Explorer"""
-        if self.current_file and os.path.exists(self.current_file):
-            # Windows: select file in Explorer
+        """Open file location in Windows Explorer (Windows only)"""
+        if not self.current_file or not os.path.exists(self.current_file):
+            return
+        try:
+            # Windows-specific: os.startfile
             os.startfile(os.path.dirname(self.current_file))
+        except AttributeError:
+            # Not on Windows
+            print("Show in Explorer is only supported on Windows")
+        except Exception as e:
+            print(f"Failed to open Explorer: {e}")
 
     def _quick_action_open_editor(self):
-        """Open file in default editor"""
-        if self.current_file and os.path.exists(self.current_file):
+        """Open file in default editor (Windows only)"""
+        if not self.current_file or not os.path.exists(self.current_file):
+            return
+        try:
+            # Windows-specific: os.startfile
             os.startfile(self.current_file)
+        except AttributeError:
+            # Not on Windows
+            print("Open in Editor is only supported on Windows")
+        except Exception as e:
+            print(f"Failed to open editor: {e}")
 
     def _quick_action_copy_md_link(self):
         """Copy markdown link format to clipboard"""
-        if self.current_file:
+        if not self.current_file:
+            return
+        try:
             filename = os.path.basename(self.current_file)
             # Create relative or absolute markdown link
             md_link = f"[{filename}]({self.current_file.replace(os.sep, '/')})"
             clipboard = QApplication.clipboard()
             clipboard.setText(md_link)
+        except Exception as e:
+            print(f"Failed to copy markdown link to clipboard: {e}")
 
     def _setup_ui(self):
         """Setup splitter layout for this tab"""
@@ -1271,18 +1304,25 @@ class FolderTab(QWidget):
         self.stats_labels["time"].setText(f"~{read_time} min")
         self.stats_labels["size"].setText(f"{size_kb:.1f} KB")
 
+    def clear_file_info(self):
+        """Clear file info panel and disable quick actions"""
+        self.file_info_labels['modified'].setText("-")
+        self.file_info_labels['encoding'].setText("-")
+        self.file_info_labels['readonly'].setText("-")
+        for btn in self.quick_action_buttons:
+            btn.setEnabled(False)
+
     def update_file_info(self):
         """Update file info panel with current file metadata"""
-        if not self.current_file or not os.path.exists(self.current_file):
-            self.file_info_labels['modified'].setText("-")
-            self.file_info_labels['encoding'].setText("-")
-            self.file_info_labels['readonly'].setText("-")
+        has_file = self.current_file and os.path.exists(self.current_file)
+
+        if not has_file:
+            self.clear_file_info()
             return
 
         try:
             # Get file modification time
             mtime = os.path.getmtime(self.current_file)
-            from datetime import datetime
             mod_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
             self.file_info_labels['modified'].setText(mod_date)
 
@@ -1292,11 +1332,13 @@ class FolderTab(QWidget):
             # Check if readonly
             is_readonly = not os.access(self.current_file, os.W_OK)
             self.file_info_labels['readonly'].setText("Yes" if is_readonly else "No")
+
+            # Enable quick action buttons when file is loaded
+            for btn in self.quick_action_buttons:
+                btn.setEnabled(True)
         except Exception:
-            # If any error, just show dashes
-            self.file_info_labels['modified'].setText("-")
-            self.file_info_labels['encoding'].setText("-")
-            self.file_info_labels['readonly'].setText("-")
+            # If any error, clear file info
+            self.clear_file_info()
 
     def set_folder(self, folder_path: str):
         """Set the root folder for this tab"""
@@ -1990,6 +2032,9 @@ class MarkdownViewer(QMainWindow):
 
     def _render_search_results(self, tab: FolderTab, results: List[SearchResult], query: str):
         """Render search results using list view template"""
+        # Clear file info when showing search results
+        tab.clear_file_info()
+
         # Generate statistics
         total_matches = len(results)
         total_files = len(set(r.file_path for r in results))
@@ -2679,6 +2724,9 @@ class MarkdownViewer(QMainWindow):
 
     def _show_recent_files(self, tab: FolderTab):
         """Show recent files list"""
+        # Clear file info when showing recent files list
+        tab.clear_file_info()
+
         recent_files = self.session_manager.get_recent_files()
 
         # Save current state to navigation history
@@ -2709,6 +2757,9 @@ class MarkdownViewer(QMainWindow):
 
     def _show_bookmarks(self, tab: FolderTab):
         """Show bookmarks list"""
+        # Clear file info when showing bookmarks list
+        tab.clear_file_info()
+
         bookmarks = self.bookmark_manager.get_all_bookmarks()
 
         # Save current state to navigation history
