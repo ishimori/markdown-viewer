@@ -1231,7 +1231,7 @@ class FolderTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Left panel: Tree view + Stats
         left_panel = QWidget()
@@ -1287,11 +1287,23 @@ class FolderTab(QWidget):
         # Enable context menu for right-click
         self.web_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
-        splitter.addWidget(left_panel)
-        splitter.addWidget(self.web_view)
-        splitter.setSizes([200, 1200])
+        self.splitter.addWidget(left_panel)
+        self.splitter.addWidget(self.web_view)
+        self.splitter.setSizes([200, 1200])
 
-        layout.addWidget(splitter)
+        # Store left panel reference for toggle functionality
+        self.left_panel = left_panel
+
+        layout.addWidget(self.splitter)
+
+    def toggle_sidebar(self):
+        """Toggle left sidebar visibility"""
+        if self.left_panel.isVisible():
+            # Hide left panel
+            self.left_panel.hide()
+        else:
+            # Show left panel
+            self.left_panel.show()
 
     def update_stats(self, content: str):
         """Update stats panel with content statistics"""
@@ -1497,6 +1509,12 @@ class MarkdownViewer(QMainWindow):
 
         toolbar.addSeparator()
 
+        # Toggle sidebar action
+        toggle_sidebar_action = QAction("📂 Sidebar", self)
+        toggle_sidebar_action.setShortcut("Ctrl+Shift+L")
+        toggle_sidebar_action.triggered.connect(self._toggle_sidebar)
+        toolbar.addAction(toggle_sidebar_action)
+
         # Toggle overview action
         toggle_overview_action = QAction("📑 Outline", self)
         toggle_overview_action.setShortcut("Ctrl+Shift+O")
@@ -1656,7 +1674,7 @@ class MarkdownViewer(QMainWindow):
     def _add_welcome_tab(self):
         """Add initial welcome tab"""
         tab = self._add_new_tab()
-        self._render_markdown(tab, "# Welcome to Markdown Viewer\n\nOpen a folder to get started.\n\n## Keyboard Shortcuts\n\n| Shortcut | Action |\n|----------|--------|\n| Ctrl+T | New Tab |\n| Ctrl+W | Close Tab |\n| Ctrl+O | Open Folder |\n| Ctrl+Tab | Next Tab |\n| Ctrl+Shift+Tab | Previous Tab |\n| Ctrl+Shift+O | Toggle Outline |\n| Ctrl+Shift+I | Toggle Stats |\n| Ctrl++ | Zoom In |\n| Ctrl+- | Zoom Out |\n| Ctrl+0 | Zoom Reset |\n| F5 | Refresh |")
+        self._render_markdown(tab, "# Welcome to Markdown Viewer\n\nOpen a folder to get started.\n\n## Keyboard Shortcuts\n\n| Shortcut | Action |\n|----------|--------|\n| Ctrl+T | New Tab |\n| Ctrl+W | Close Tab |\n| Ctrl+O | Open Folder |\n| Ctrl+Tab | Next Tab |\n| Ctrl+Shift+Tab | Previous Tab |\n| Ctrl+Shift+L | Toggle Sidebar |\n| Ctrl+Shift+O | Toggle Outline |\n| Ctrl+Shift+I | Toggle Stats |\n| Ctrl++ | Zoom In |\n| Ctrl+- | Zoom Out |\n| Ctrl+0 | Zoom Reset |\n| F5 | Refresh |")
 
     def _add_new_tab(self, folder_path: str = None) -> FolderTab:
         """Create and add a new folder tab"""
@@ -2457,6 +2475,12 @@ class MarkdownViewer(QMainWindow):
                 tab = self.tab_widget.widget(i)
                 if tab.current_file == path and os.path.exists(path):
                     self._reload_with_scroll(tab)
+
+    def _toggle_sidebar(self):
+        """Toggle left sidebar visibility"""
+        tab = self._get_current_tab()
+        if tab:
+            tab.toggle_sidebar()
 
     def _toggle_overview(self):
         """Toggle overview box visibility"""
