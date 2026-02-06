@@ -14,6 +14,7 @@ a = Analysis(
         (os.path.join(project_dir, 'src', 'version.txt'), '.'),
         (os.path.join(project_dir, 'src', 'assets'), 'assets'),
         (os.path.join(project_dir, 'src', 'templates'), 'templates'),
+        (os.path.join(project_dir, 'HELP.md'), '.'),
     ],
     hiddenimports=[
         'PyQt6.QtWebEngineWidgets',

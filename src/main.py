@@ -1362,11 +1362,13 @@ class MarkdownViewer(QMainWindow):
 
     def _show_help(self):
         """Show help page by opening HELP.md"""
-        # Get path to HELP.md in project root
-        help_path = get_resource_path("../HELP.md")
-
-        # If not found in resource path, try current directory
-        if not help_path.exists():
+        # Get path to HELP.md - works for both dev and PyInstaller builds
+        # In PyInstaller, HELP.md should be included via --add-data "HELP.md;."
+        if hasattr(sys, '_MEIPASS'):
+            # PyInstaller build: HELP.md is extracted to _MEIPASS
+            help_path = Path(sys._MEIPASS) / "HELP.md"
+        else:
+            # Development: HELP.md is in project root
             help_path = Path(__file__).parent.parent / "HELP.md"
 
         # If still not found, show error
