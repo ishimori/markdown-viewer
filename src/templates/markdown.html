@@ -481,7 +481,10 @@
         window.addEventListener('scroll', updateActiveHeading);
 
         function toggleOverview() {
-            document.getElementById('sidebar-container').classList.toggle('closed');
+            const sidebar = document.getElementById('sidebar-container');
+            sidebar.classList.toggle('closed');
+            // Toggle body class to adjust content width
+            document.body.classList.toggle('sidebar-closed');
         }
 
         // Scroll to specific line and flash highlight

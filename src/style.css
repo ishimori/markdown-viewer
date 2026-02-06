@@ -36,6 +36,12 @@ body {
     margin: 0;
     padding: 30px 45px;
     padding-right: 280px; /* Account for sidebar */
+    transition: padding-right 0.3s ease; /* Smooth transition when sidebar toggles */
+}
+
+/* When sidebar is closed, expand content area */
+body.sidebar-closed {
+    padding-right: 65px; /* Account for toggle button (28px) + margin */
 }
 
 /* Headings */
