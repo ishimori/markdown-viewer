@@ -836,6 +836,10 @@ class SessionManager:
 
     def add_recent_file(self, file_path: str) -> None:
         """Add file to recent files list (max 10)"""
+        # Validate input
+        if not file_path or not isinstance(file_path, str):
+            return
+
         session_data = self.load_session() or {}
 
         recent_files = session_data.get('recent_files', [])
@@ -1691,6 +1695,11 @@ class MarkdownViewer(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load file:\n{e}")
+        finally:
+            # Always clear highlight attributes after loading any file type
+            # This prevents stale highlight data from affecting subsequent file loads
+            tab._highlight_line = 0
+            tab._highlight_keyword = ""
 
     def _perform_search(self, tab: FolderTab):
         """Execute search and display results"""
