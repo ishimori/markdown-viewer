@@ -73,9 +73,21 @@ WshShell.Run "run.bat", 0, False
 markdown-viewer/
 ├── src/                    # ソースコード
 │   ├── main.py            # メインアプリケーション
+│   ├── version.txt        # バージョン番号
 │   ├── style.css          # UIスタイルシート
+│   ├── assets/            # 静的アセット
+│   │   ├── css/
+│   │   │   └── highlight-github.css  # シンタックスハイライトCSS
+│   │   └── js/
+│   │       ├── marked.min.js         # Markdownパーサー
+│   │       ├── mermaid.min.js        # 図表ライブラリ
+│   │       └── highlight.min.js      # シンタックスハイライト
 │   └── templates/
 │       └── markdown.html  # HTMLテンプレート
+├── scripts/                # ビルド・ユーティリティ
+│   ├── build.bat          # ビルドスクリプト
+│   ├── increment_version.py # バージョン自動インクリメント
+│   └── markdown_viewer.spec # PyInstallerスペックファイル
 ├── doc/                    # ドキュメント
 │   ├── spec/              # 仕様書
 │   └── sample.md          # サンプルファイル
@@ -132,10 +144,15 @@ class MarkdownViewer(QMainWindow):
 |-----------|---------|
 | 起動 | アプリケーションが正常に起動する |
 | ファイル読み込み | .mdファイルが正しく表示される |
+| マルチフォーマット | XML/Python/CSV/CDXMLファイルが正しく表示される |
 | Mermaid | 図表が正しくレンダリングされる |
 | タブ操作 | 作成/閉じる/切り替えが動作する |
 | セッション | 終了→起動で状態が復元される |
 | ショートカット | 全てのキーバインドが動作する |
+| 行番号ガター | 行番号が正しく表示され、クリックでコピーされる |
+| ズーム | Ctrl++/-/0 でコンテンツの拡大・縮小・リセットが動作する |
+| スクロール保持 | F5 でリフレッシュ後、スクロール位置が復元される |
+| バージョン表示 | タイトルバーにバージョン番号が表示される |
 
 ### サンプルファイル
 
@@ -162,8 +179,8 @@ pip install PyQt6 PyQt6-WebEngine
 
 #### Mermaidが表示されない
 
-- インターネット接続を確認（CDNからロード）
-- ブラウザキャッシュをクリア
+- `src/assets/js/mermaid.min.js` が存在するか確認
+- ファイルが破損していないか確認
 
 #### セッションが復元されない
 
@@ -191,32 +208,75 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 web_view.page().setDevToolsPage(QWebEnginePage())
 ```
 
+## バージョン管理
+
+### バージョンファイル
+
+| 項目 | 値 |
+|------|-----|
+| ファイル | `src/version.txt` |
+| 形式 | 浮動小数点数（例: `1.0`） |
+| デフォルト値 | ファイル未存在時は `0.0` |
+
+### バージョン自動インクリメント
+
+ビルド時に `scripts/increment_version.py` が自動実行され、バージョン番号を0.1ずつ増加させる。
+
+| 項目 | 説明 |
+|------|------|
+| スクリプト | `scripts/increment_version.py` |
+| 増分 | +0.1 |
+| 呼び出し元 | `scripts/build.bat` |
+| エラー時 | バージョン形式が不正な場合、1.0にリセット |
+
+### タイトルバー表示
+
+| 実行環境 | 表示例 |
+|---------|--------|
+| PyInstaller実行ファイル | `Markdown Viewer v1.0` |
+| Python直接実行 | `Markdown Viewer v1.0 [Python]` |
+
+### 実装
+
+`get_version_info()` 関数が `src/version.txt` を読み込み、`sys.frozen` 属性で実行モードを判定する。
+
 ## ビルド・配布
 
-### PyInstaller（オプション）
+### ビルド手順
 
-```bash
-pip install pyinstaller
+`scripts/build.bat` を使用してビルドする。バージョン番号の自動インクリメントとPyInstallerによるexe生成を行う。
 
-pyinstaller --onefile --windowed \
-    --name "MarkdownViewer" \
-    --add-data "src/style.css;src" \
-    --add-data "src/templates;src/templates" \
-    src/main.py
+```batch
+:: scripts/build.bat
+@echo off
+cd /d "%~dp0\.."
+
+REM バージョン番号をインクリメント
+.venv\Scripts\python.exe scripts\increment_version.py
+
+REM PyInstallerをインストール（未インストールの場合）
+.venv\Scripts\python.exe -m pip install pyinstaller
+
+REM exe をビルド
+.venv\Scripts\python.exe -m PyInstaller scripts\markdown_viewer.spec --noconfirm
 ```
+
+### PyInstaller スペックファイル
+
+`scripts/markdown_viewer.spec` にビルド設定を定義。リソースファイル（CSS, JS, HTML, version.txt）を含む。
 
 ### リソースパス解決
 
 PyInstaller でビルドされた実行ファイルでは、リソースファイルのパスが異なる。`get_resource_path()` 関数で対応。
 
 ```python
-def get_resource_path(relative_path: str) -> str:
+def get_resource_path(relative_path: str) -> Path:
     """PyInstaller対応のリソースパス解決"""
-    if hasattr(sys, '_MEIPASS'):
-        # PyInstaller の一時展開ディレクトリ
-        return os.path.join(sys._MEIPASS, relative_path)
-    # 通常実行時
-    return os.path.join(os.path.dirname(__file__), relative_path)
+    if getattr(sys, 'frozen', False):
+        base_path = Path(sys._MEIPASS)
+    else:
+        base_path = Path(__file__).parent
+    return base_path / relative_path
 ```
 
 | 環境 | パス |

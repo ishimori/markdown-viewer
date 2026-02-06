@@ -34,10 +34,10 @@ Python 3.10+
 ### フロントエンド（WebEngine内）
 
 ```
-CDN Libraries
+Local Libraries (src/assets/)
 ├── marked.js              # Markdownパーサー
 ├── mermaid.js             # 図表レンダリング
-└── highlight.js           # コードハイライト（marked.js経由）
+└── highlight.js           # シンタックスハイライト
 ```
 
 ### 開発環境
@@ -55,9 +55,12 @@ Tools
 |------|------|-----------|
 | Markdown表示 | .md/.markdownファイルのHTML変換・表示 | `MarkdownViewer` |
 | Mermaid対応 | フローチャート・シーケンス図等のレンダリング | `_render_markdown()` |
+| マルチファイル形式 | XML/Python/CSV/CDXML等の表示 | `_render_code()`, `_render_csv()`, `_render_cdxml()` |
 | タブUI | 複数ファイルの同時閲覧 | `FolderTab` |
-| ファイルツリー | フォルダ内ファイルの階層表示 | `FolderTab` |
+| ファイルツリー | フォルダ内ファイルの階層表示・タイプバッジ | `FolderTab`, `FileTypeIconModel` |
 | 目次表示 | 見出しからの自動目次生成 | `_render_markdown()` |
+| 行番号ガター | ソース行番号の表示・クリックでコピー | `_render_markdown()` |
+| ズーム | コンテンツ表示倍率の変更 | `MarkdownViewer` |
 | セッション管理 | ウィンドウ状態・開いたファイルの保存・復元 | `SessionManager` |
 | 統計情報 | 行数・文字数・読了時間の表示 | `update_stats()` |
 
@@ -65,8 +68,11 @@ Tools
 
 ### 入力
 
-- `.md` - Markdown ファイル
-- `.markdown` - Markdown ファイル（代替拡張子）
+- `.md`, `.markdown` - Markdown ファイル
+- `.xml`, `.xsl`, `.xslt`, `.xsd`, `.svg` - XMLファイル
+- `.py`, `.pyw` - Pythonファイル
+- `.csv` - CSVファイル
+- `.cdxml` - ChemDraw化学構造ファイル
 
 ### Mermaid 対応図表
 
@@ -90,7 +96,7 @@ Tools
 
 ### オプション
 
-- インターネット接続（CDNライブラリ取得用、初回のみ）
+- インターネット接続は不要（ライブラリはすべてローカルにバンドル済み）
 
 ## 制限事項
 

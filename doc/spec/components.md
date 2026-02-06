@@ -162,7 +162,7 @@ SESSION_FILE = SESSION_DIR / "session.json"
 **保存内容:**
 - ウィンドウ位置 (x, y)
 - ウィンドウサイズ (width, height)
-- タブ情報（フォルダパス、選択ファイル、アウトライン状態）
+- タブ情報（フォルダパス、選択ファイル、フィルターインデックス）
 - アクティブタブインデックス
 
 #### `load_session(self) -> dict | None`
@@ -184,25 +184,22 @@ SESSION_FILE = SESSION_DIR / "session.json"
 
 | 属性名 | 型 | 説明 |
 |--------|---|------|
-| folder_path | str | 表示中のフォルダパス |
-| current_folder | str | 現在のフォルダパス（リンク解決用） |
+| current_folder | str | 現在のフォルダパス |
 | current_file | str | 選択中のファイルパス |
-| file_tree | QTreeWidget | ファイル一覧ツリー |
-| file_model | QFileSystemModel | ファイルシステムモデル |
-| web_view | QWebEngineView | Markdownレンダリング領域 |
+| file_model | FileTypeIconModel | ファイルシステムモデル（バッジ付き） |
+| tree_view | QTreeView | ファイル一覧ツリービュー |
+| web_view | QWebEngineView | コンテンツレンダリング領域 |
+| web_page | MarkdownWebPage | リンクインターセプト用ページ |
 | stats_labels | dict | 統計情報ラベル群 |
-| outline_visible | bool | アウトライン表示状態 |
-| css | str | スタイルシート文字列 |
-| navigation_history | list | ナビゲーション履歴スタック |
 | filter_combo | QComboBox | ファイルフィルタードロップダウン |
+| navigation_history | list | ナビゲーション履歴スタック |
 
 ### メソッド
 
-#### `__init__(self, css: str, parent=None)`
+#### `__init__(self, parent=None)`
 
 | パラメータ | 型 | 説明 |
 |-----------|---|------|
-| css | str | HTMLに埋め込むCSS |
 | parent | QWidget | 親ウィジェット |
 
 #### `_setup_ui(self) -> None`
@@ -213,10 +210,10 @@ UIコンポーネントを初期化・配置。
 ```
 QSplitter (horizontal)
 ├── left_panel (QWidget, 幅250px)
-│   ├── file_tree (QTreeWidget)
+│   ├── tree_view (QTreeView + FileTypeIconModel)
 │   └── stats_panel (QWidget)
 │       └── Lines / Chars / Words / Read / Size
-└── web_view (QWebEngineView)
+└── web_view (QWebEngineView + MarkdownWebPage)
 ```
 
 #### `set_folder(self, folder_path: str) -> None`
@@ -245,34 +242,6 @@ QSplitter (horizontal)
 | Words | `len(content.split())` |
 | Read | `words / 200` 分 |
 | Size | ファイルサイズ (KB) |
-
-#### `_render_markdown(self, content: str) -> None`
-
-| パラメータ | 型 | 説明 |
-|-----------|---|------|
-| content | str | Markdownテキスト |
-
-**処理フロー:**
-1. HTMLテンプレート生成
-2. CDNからmarked.js/mermaid.js読み込み
-3. Markdownをパース
-4. Mermaid図表を初期化
-5. 目次（アウトライン）を生成
-6. WebViewにHTMLをセット
-
-**生成されるHTML構造:**
-
-テンプレートファイル `src/templates/markdown.html` を使用。
-詳細は [architecture.md](architecture.md) の「HTMLテンプレート」セクションを参照。
-
-#### `_on_file_clicked(self, item: QTreeWidgetItem, column: int) -> None`
-
-ファイルツリーのアイテムがクリックされた時の処理。
-
-| パラメータ | 型 | 説明 |
-|-----------|---|------|
-| item | QTreeWidgetItem | クリックされたアイテム |
-| column | int | クリックされた列 |
 
 #### `toggle_outline(self) -> None`
 
@@ -312,8 +281,9 @@ QSplitter (horizontal)
 
 | 属性名 | 型 | 説明 |
 |--------|---|------|
-| tabs | QTabWidget | タブコンテナ |
-| css | str | 読み込んだスタイルシート |
+| app_title | str | アプリケーションタイトル（バージョン＋モード情報付き） |
+| tab_widget | QTabWidget | タブコンテナ |
+| css_content | str | 読み込んだスタイルシート |
 | session_manager | SessionManager | セッション管理インスタンス |
 | path_label | QLabel | ツールバー上のファイルパス表示ラベル |
 
@@ -342,9 +312,11 @@ QSplitter (horizontal)
 ウィンドウタイトルとツールバーのパスラベルを現在のタブ状態に基づいて更新（SSOT原則）。
 
 **タイトル形式:**
-- ファイル選択時: `Markdown Viewer - {ファイル名}`
-- フォルダ選択時: `Markdown Viewer - {フォルダパス}`
-- 未選択時: `Markdown Viewer`
+- ファイル選択時: `{app_title} - {ファイル名}`
+- フォルダ選択時: `{app_title} - {フォルダパス}`
+- 未選択時: `{app_title}`
+
+`app_title` はバージョン情報を含む（例: `Markdown Viewer v1.0` または `Markdown Viewer v1.0 [Python]`）。
 
 **パスラベル:**
 - ファイル選択時: フルパスを表示
@@ -364,10 +336,10 @@ QSplitter (horizontal)
 
 | ボタン | アクション |
 |--------|-----------|
-| Open Folder | `_open_folder()` |
+| Open Folder | `_open_folder_in_current_tab()` |
 | New Tab | `_add_new_tab()` |
-| Reload | `_reload_current()` |
-| Toggle Outline | `_toggle_outline()` |
+| Refresh | `_refresh_current_tab()` |
+| Toggle Outline | `_toggle_overview()` |
 | パスラベル | 現在のファイルのフルパスを右寄せで表示 |
 
 #### `_setup_shortcuts(self) -> None`
@@ -378,11 +350,14 @@ QSplitter (horizontal)
 |------|---------|
 | Ctrl+T | `_add_new_tab()` |
 | Ctrl+W | `_close_current_tab()` |
-| Ctrl+O | `_open_folder()` |
+| Ctrl+O | `_open_folder_in_current_tab()` |
 | Ctrl+Tab | `_next_tab()` |
 | Ctrl+Shift+Tab | `_prev_tab()` |
-| Ctrl+Shift+O | `_toggle_outline()` |
-| F5 | `_reload_current()` |
+| Ctrl+Shift+O | `_toggle_overview()` |
+| F5 | `_refresh_current_tab()` |
+| Ctrl+= / Ctrl+Shift+= | `_zoom_in()` |
+| Ctrl+- | `_zoom_out()` |
+| Ctrl+0 | `_zoom_reset()` |
 
 #### `_add_new_tab(self, folder_path: str = None) -> FolderTab`
 
@@ -398,15 +373,47 @@ QSplitter (horizontal)
 
 現在のタブを閉じる。最後の1つは閉じない。
 
-#### `_open_folder(self) -> None`
+#### `_open_folder_in_current_tab(self) -> None`
 
-フォルダ選択ダイアログを表示し、選択されたフォルダをタブに設定。
+フォルダ選択ダイアログを表示し、選択されたフォルダを現在のタブに設定。
 
-#### `_reload_current(self) -> None`
+#### `_refresh_current_tab(self) -> None`
 
-現在表示中のファイルを再読み込み。
+現在表示中のファイルを再読み込み。スクロール位置を保持する。
 
-#### `_toggle_outline(self) -> None`
+**処理フロー:**
+1. JavaScript で `window.pageYOffset` を取得
+2. コールバックで `_do_reload()` を呼び出し
+
+#### `_do_reload(self, tab: FolderTab, scroll_y) -> None`
+
+ファイルの再読み込みとスクロール位置の復元を実行。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| tab | FolderTab | 対象タブ |
+| scroll_y | float/None | 復元するスクロール位置 |
+
+**処理フロー:**
+1. ファイルを再読み込み（`_load_file()`）
+2. ナビゲーション履歴をクリア
+3. `loadFinished` シグナルに一時接続
+4. ページ読み込み完了後、100ms遅延で `window.scrollTo()` を実行
+5. シグナルを `disconnect`
+
+#### `_zoom_in(self) -> None`
+
+現在のタブのWebViewのズームレベルを0.1増加（最大3.0）。
+
+#### `_zoom_out(self) -> None`
+
+現在のタブのWebViewのズームレベルを0.1減少（最小0.3）。
+
+#### `_zoom_reset(self) -> None`
+
+現在のタブのWebViewのズームレベルを1.0にリセット。
+
+#### `_toggle_overview(self) -> None`
 
 現在のタブのアウトライン表示を切り替え。
 
@@ -430,14 +437,15 @@ QSplitter (horizontal)
 
 ウィンドウ閉じる前にセッションを保存。
 
-#### `_handle_link_click(self, url: str, new_tab: bool) -> None`
+#### `_on_link_clicked(self, tab: FolderTab, url: str, open_in_new_tab: bool) -> None`
 
 リンククリックを処理。
 
 | パラメータ | 型 | 説明 |
 |-----------|---|------|
+| tab | FolderTab | 対象タブ |
 | url | str | クリックされたURL |
-| new_tab | bool | 新しいタブで開くか |
+| open_in_new_tab | bool | 新しいタブで開くか |
 
 **処理フロー:**
 1. URLスキームを判定（app://, http://, #, ファイルパス）
@@ -467,9 +475,101 @@ QSplitter (horizontal)
 3. QMenu を生成（Open / Open in New Tab）
 4. 選択されたアクションを実行
 
+#### `_on_file_clicked(self, tab: FolderTab, index: QModelIndex) -> None`
+
+ファイルツリーのアイテムがクリックされた時の処理。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| tab | FolderTab | 対象タブ |
+| index | QModelIndex | クリックされたアイテムのインデックス |
+
+#### `_load_file(self, tab: FolderTab, file_path: str) -> None`
+
+ファイルタイプに応じて適切なレンダラーにディスパッチする。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| tab | FolderTab | 対象タブ |
+| file_path | str | ファイルパス |
+
+**処理フロー:**
+1. `detect_file_type()` でファイルタイプを判定
+2. Markdown → `_render_markdown()`
+3. XML/Python → `_render_code()`
+4. CSV → `_render_csv()`
+5. CDXML → `_render_cdxml()`
+
+#### `_render_markdown(self, tab: FolderTab, markdown_content: str) -> None`
+
+Markdownコンテンツをレンダリングして表示する。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| tab | FolderTab | 対象タブ |
+| markdown_content | str | Markdownテキスト |
+
+**処理フロー:**
+1. Markdownソースを行ごとに解析し、lineInfo（行番号・タイプ情報）JSON配列を生成
+2. HTMLテンプレートにコンテンツ・lineInfo・rawLines・ファイルパスを埋め込み
+3. ローカルのmarked.js/mermaid.jsを読み込み
+4. Markdownをパース
+5. `buildGutter()` で行番号ガターを生成
+6. Mermaid図表を初期化
+7. 目次（アウトライン）を生成
+8. WebViewにHTMLをセット
+
+**テンプレート変数:**
+| 変数 | 説明 |
+|------|------|
+| `$MARKDOWN_CONTENT$` | Markdownテキスト（エスケープ済み） |
+| `$LINE_INFO$` | 行番号・タイプ情報のJSON配列 |
+| `$RAW_LINES$` | ソースを行分割したJSON配列 |
+| `$FILE_PATH$` | 現在のファイルのフルパス |
+
+#### `_render_code(self, tab: FolderTab, content: str, language: str, title: str) -> None`
+
+XML/Pythonファイルをシンタックスハイライト付きで表示する。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| tab | FolderTab | 対象タブ |
+| content | str | ファイル内容 |
+| language | str | 言語（xml, python, plaintext） |
+| title | str | ファイル名 |
+
+#### `_render_csv(self, tab: FolderTab, content: str) -> None`
+
+CSVファイルをHTMLテーブルとして表示する。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| tab | FolderTab | 対象タブ |
+| content | str | CSVファイル内容 |
+
+#### `_escape_for_js(self, content: str) -> str`
+
+JavaScriptテンプレートリテラル用にバックスラッシュ、バッククォート、ドル記号をエスケープする。
+
+#### `_escape_html(self, text: str) -> str`
+
+HTMLエンティティ（&, <, >, ", '）をエスケープする。
+
+#### `_set_html_with_base(self, tab: FolderTab, html: str) -> None`
+
+QUrlベースURLを設定してHTMLをWebViewにセットする。相対リンク解決用。
+
 #### `_add_welcome_tab(self) -> None`
 
 ウェルカムタブを追加。キーボードショートカット一覧を表示。
+
+#### `_show_tree_context_menu(self, tab: FolderTab, pos: QPoint) -> None`
+
+ファイルツリー上での右クリックメニューを表示。
+
+| メニュー項目 | 動作 |
+|------------|------|
+| Copy Path | ファイルパスをクリップボードにコピー |
 
 ---
 
@@ -490,6 +590,19 @@ CDXML化学構造ファイルをSVG画像としてレンダリング。
 ---
 
 ## モジュールレベル関数
+
+### `get_version_info() -> tuple[str, bool]`
+
+バージョン番号と実行モード（凍結exe or Python）を返す。
+
+| 戻り値 | 説明 |
+|--------|------|
+| tuple[str, bool] | (バージョン文字列, PyInstaller実行かどうか) |
+
+**処理フロー:**
+1. `sys.frozen` 属性で PyInstaller 実行かを判定
+2. `get_resource_path('version.txt')` からバージョン番号を読み込み
+3. ファイルが見つからない場合は `'0.0'` をデフォルト値とする
 
 ### `cdxml_to_svg(cdxml_content: str) -> tuple[str, int]`
 

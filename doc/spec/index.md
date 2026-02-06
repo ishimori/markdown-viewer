@@ -21,7 +21,7 @@
 - **種別**: Windows デスクトップアプリケーション
 - **言語**: Python 3.10+
 - **GUI**: PyQt6 + WebEngine
-- **主要機能**: Markdown表示、Mermaid対応、タブUI、セッション管理
+- **主要機能**: Markdown表示、Mermaid対応、タブUI、セッション管理、マルチファイル形式対応、行番号ガター、ズーム
 
 ### ファイル構成（主要）
 
@@ -29,9 +29,21 @@
 markdown-viewer/
 ├── src/
 │   ├── main.py          # アプリケーション本体
+│   ├── version.txt      # バージョン番号
 │   ├── style.css        # UIスタイル定義
+│   ├── assets/          # 静的アセット（JS/CSS）
+│   │   ├── css/
+│   │   │   └── highlight-github.css
+│   │   └── js/
+│   │       ├── marked.min.js
+│   │       ├── mermaid.min.js
+│   │       └── highlight.min.js
 │   └── templates/
 │       └── markdown.html # HTMLテンプレート
+├── scripts/              # ビルド・ユーティリティ
+│   ├── build.bat
+│   ├── increment_version.py
+│   └── markdown_viewer.spec
 ├── doc/
 │   ├── spec/            # 本仕様書
 │   └── sample.md        # サンプルMarkdown
@@ -45,20 +57,24 @@ markdown-viewer/
 
 | 名前 | ファイル | 役割 |
 |------|---------|------|
-| `QT_STYLES` | main.py:33 | Qt ウィジェットスタイル定数 |
-| `MarkdownWebPage` | main.py:93 | リンククリック処理 |
-| `SessionManager` | main.py:121 | セッション状態の保存・復元 |
-| `FolderTab` | main.py:175 | タブ単位のUI管理 |
-| `MarkdownViewer` | main.py:335 | メインウィンドウ・アプリ制御 |
+| `get_version_info` | main.py:26 | バージョン情報取得 |
+| `FileType` | main.py:46 | ファイルタイプ列挙型 |
+| `QT_STYLES` | main.py:272 | Qt ウィジェットスタイル定数 |
+| `FileTypeIconModel` | main.py:344 | ファイルタイプバッジアイコン |
+| `MarkdownWebPage` | main.py:403 | リンククリック処理 |
+| `SessionManager` | main.py:431 | セッション状態の保存・復元 |
+| `FolderTab` | main.py:485 | タブ単位のUI管理 |
+| `MarkdownViewer` | main.py:647 | メインウィンドウ・アプリ制御 |
 
 ### 依存ライブラリ
 
-| ライブラリ | バージョン | 用途 |
-|-----------|-----------|------|
+| ライブラリ | バージョン/配置 | 用途 |
+|-----------|---------------|------|
 | PyQt6 | >=6.4.0 | GUIフレームワーク |
 | PyQt6-WebEngine | >=6.4.0 | HTML/Webレンダリング |
-| marked.js | CDN | Markdownパース |
-| mermaid.js | CDN | 図表レンダリング |
+| marked.js | src/assets/js/ | Markdownパース |
+| mermaid.js | src/assets/js/ | 図表レンダリング |
+| highlight.js | src/assets/js/ | シンタックスハイライト |
 
 ## 変更時の参照ガイド
 
@@ -85,3 +101,5 @@ markdown-viewer/
 | 日付 | 内容 |
 |------|------|
 | 2026-02-03 | 初版作成 |
+| 2026-02-04 | マルチファイル形式対応、ファイルタイプバッジ、CDXML対応を追加 |
+| 2026-02-05 | 行番号ガター(F16拡張)、ズーム(F17)、スクロール保持(F18)、バージョン管理を追加 |

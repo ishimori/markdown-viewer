@@ -3,21 +3,21 @@
 ## 全体レイアウト
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ [Open] [New Tab] [Reload] [Outline]    /path/to/file  Toolbar   │
-├─────────────────────────────────────────────────────────────────┤
-│ Tab1 │ Tab2 │ Tab3 │                             Tab Bar        │
-├─────────────────────────────────────────────────────────────────┤
-│         │                                      │                │
-│ File    │                                      │  Outline       │
-│ Tree    │           Content Area               │  (ToC)         │
-│         │                                      │                │
-│─────────│                                      │                │
-│ Stats   │                                      │                │
-│ Panel   │                                      │                │
-│         │                                      │                │
-└─────────┴──────────────────────────────────────┴────────────────┘
-     250px              可変幅                        250px
+┌──────────────────────────────────────────────────────────────────────┐
+│ [Open] [New Tab] [Refresh] [Outline]       /path/to/file   Toolbar  │
+├──────────────────────────────────────────────────────────────────────┤
+│ Tab1 │ Tab2 │ Tab3 │                                  Tab Bar       │
+├──────────────────────────────────────────────────────────────────────┤
+│         │       │                                │                  │
+│ File    │ Gutter│                                │  Outline         │
+│ Tree    │ (Lines)│       Content Area            │  (ToC)           │
+│         │       │                                │                  │
+│─────────│       │                                │                  │
+│ Stats   │       │                                │                  │
+│ Panel   │       │                                │                  │
+│         │       │                                │                  │
+└─────────┴───────┴────────────────────────────────┴──────────────────┘
+   250px    38px            可変幅                       220px
 ```
 
 ## カラーパレット
@@ -196,16 +196,8 @@ blockquote {
 ### コンテンツ領域
 
 ```css
-.container {
-    display: flex;
-    max-width: 100%;
-}
-
-#content {
-    flex: 1;
-    padding: 30px 50px;
-    max-width: calc(100% - 250px);
-    overflow-y: auto;
+body {
+    padding: 30px 280px 30px 50px;  /* right: サイドバー分の余白 */
 }
 ```
 
@@ -213,8 +205,8 @@ blockquote {
 
 ```css
 #outline {
-    width: 250px;
-    min-width: 250px;
+    width: 220px;
+    min-width: 220px;
     background: var(--sidebar-bg);
     border-left: 1px solid var(--border-color);
     padding: 20px;
@@ -276,21 +268,21 @@ blockquote {
 ### ファイルツリー
 
 ```python
-file_tree.setStyleSheet("""
-    QTreeWidget {
+tree_view.setStyleSheet("""
+    QTreeView {
         background: #f8faff;
         border: none;
         font-size: 13px;
     }
-    QTreeWidget::item {
+    QTreeView::item {
         padding: 8px;
         border-radius: 4px;
     }
-    QTreeWidget::item:selected {
+    QTreeView::item:selected {
         background: #e3f2fd;
         color: #1976d2;
     }
-    QTreeWidget::item:hover {
+    QTreeView::item:hover {
         background: #f0f4f8;
     }
 """)
@@ -317,22 +309,43 @@ stats_panel.setStyleSheet("""
 ```python
 tabs.setStyleSheet("""
     QTabWidget::pane {
-        border: none;
+        border: 1px solid #90caf9;
+        border-top: none;
     }
     QTabBar::tab {
         background: #f0f4f8;
         padding: 10px 20px;
         margin-right: 2px;
+        border: 1px solid #90caf9;
+        border-bottom: none;
         border-top-left-radius: 6px;
         border-top-right-radius: 6px;
+        color: #5c6bc0;
     }
     QTabBar::tab:selected {
         background: #ffffff;
-        color: #1976d2;
+        color: #0d47a1;
         font-weight: bold;
+        border-top: 3px solid #1976d2;
+        border-bottom: 1px solid #ffffff;
+    }
+    QTabBar::tab:hover:!selected {
+        background: #bbdefb;
     }
 """)
 ```
+
+#### アクティブタブのスタイル
+
+| 項目 | 値 |
+|------|-----|
+| 上部ボーダー | 3px solid #1976d2 |
+| 背景色 | #ffffff |
+| テキスト色 | #0d47a1 |
+| フォントウェイト | bold |
+| 下部ボーダー | 1px solid #ffffff（ペインとの継ぎ目を隠す） |
+
+非選択タブのホバー時: 背景 #bbdefb
 
 ## レスポンシブ対応
 
@@ -369,3 +382,63 @@ splitter.setSizes([250, 950])  # 左パネル: 250px, コンテンツ: 残り
     background: #90a4c0;
 }
 ```
+
+## ガター（行番号）
+
+HTMLテンプレート内のインラインCSSで定義。Markdownコンテンツの左側に固定表示される行番号領域。
+
+### スタイル定義
+
+| 要素 | スタイル |
+|------|---------|
+| `#gutter` | position: fixed; left: 0; top: 0; bottom: 0; width: 38px; background: #f0f4f8; border-right: 1px solid #90caf9; z-index: 10 |
+| `#gutter-content` | position: relative |
+| `.gutter-line` | position: absolute; width: 100%; text-align: right; padding-right: 6px; cursor: pointer; box-sizing: border-box |
+| `.gutter-line:hover` | background: #e3f2fd; color: #1976d2 |
+| `.gutter-line.selected` | background: #bbdefb; color: #1565c0 |
+| `.gutter-line.heading` | font-weight: bold; color: #1976d2 |
+
+### フォント
+
+```css
+font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+font-size: 11px;
+color: #90a4ae;
+```
+
+### body調整
+
+ガター表示時はbodyに左マージンを追加：
+
+```css
+body {
+    margin-left: 42px;
+    padding-left: 25px;
+}
+```
+
+## コピートースト通知
+
+ガタークリックによるコピー成功時に表示されるフィードバック通知。
+
+| 項目 | 値 |
+|------|-----|
+| 位置 | 画面下部中央 (fixed, bottom: 20px, left: 50%, transform: translateX(-50%)) |
+| 背景色 | rgba(13, 71, 161, 0.9) |
+| テキスト色 | white |
+| 角丸 | 6px |
+| フォントサイズ | 12px |
+| パディング | 8px 20px |
+| アニメーション | opacity 0.3s, transform 0.3s |
+| 表示時間 | 1.5秒 |
+
+## 目次内行番号
+
+アウトラインサイドバーの各見出し項目に表示されるソース行番号。
+
+| 項目 | 値 |
+|------|-----|
+| フォントサイズ | 9px |
+| テキスト色 | #9e9e9e |
+| フォント | SFMono-Regular, Consolas, monospace |
+| 表示形式 | "L42" のように行番号の前に "L" を付与 |
