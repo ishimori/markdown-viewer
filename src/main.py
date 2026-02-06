@@ -1305,10 +1305,15 @@ class FolderTab(QWidget):
         self.stats_labels["size"].setText(f"{size_kb:.1f} KB")
 
     def clear_file_info(self):
-        """Clear file info panel and disable quick actions"""
+        """Clear file info panel, stats, and disable quick actions"""
+        # Clear file info
         self.file_info_labels['modified'].setText("-")
         self.file_info_labels['encoding'].setText("-")
         self.file_info_labels['readonly'].setText("-")
+        # Clear stats
+        for key in ['lines', 'chars', 'words', 'time', 'size']:
+            self.stats_labels[key].setText("-")
+        # Disable quick action buttons
         for btn in self.quick_action_buttons:
             btn.setEnabled(False)
 
