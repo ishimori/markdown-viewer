@@ -21,6 +21,10 @@ Qt ウィジェット用のスタイルシート定数。SSOT（Single Source of
 | クラス | 継承元 | 役割 |
 |--------|--------|------|
 | `FileType` | Enum | ファイルタイプ列挙型 |
+| `SearchResult` | dataclass | 検索結果エントリ |
+| `SearchEngine` | - | 全文検索エンジン |
+| `BookmarkEntry` | dataclass | ブックマークエントリ |
+| `BookmarkManager` | - | ブックマーク管理 |
 | `FileTypeIconModel` | QFileSystemModel | ファイルタイプアイコン表示 |
 | `MarkdownWebPage` | QWebEnginePage | リンククリック処理 |
 | `SessionManager` | - | セッション状態の永続化 |
@@ -63,6 +67,279 @@ FILE_TYPE_MAP = {
     '.cdxml': FileType.CDXML,
 }
 ```
+
+---
+
+## SearchResult
+
+### 概要
+
+検索結果の単一エントリを表すデータクラス。
+
+### フィールド
+
+| フィールド | 型 | 説明 |
+|----------|-----|------|
+| `file_path` | str | ファイルの絶対パス |
+| `file_name` | str | ファイル名（basename） |
+| `line_number` | int | マッチした行番号（1-indexed） |
+| `line_content` | str | マッチした行の内容 |
+| `context_before` | str | 前の行の内容（コンテキスト） |
+| `context_after` | str | 次の行の内容（コンテキスト） |
+| `match_count` | int | その行内のマッチ数 |
+
+### 使用例
+
+```python
+result = SearchResult(
+    file_path="C:/path/to/file.md",
+    file_name="file.md",
+    line_number=42,
+    line_content="This is a matching line",
+    context_before="Previous line",
+    context_after="Next line",
+    match_count=2
+)
+```
+
+---
+
+## SearchEngine
+
+### 概要
+
+フォルダ内の全ファイルを対象に全文検索を実行するエンジンクラス。
+
+### 主要メソッド
+
+#### search()
+
+```python
+def search(
+    folder_path: str,
+    tree_model: QFileSystemModel,
+    query: str,
+    case_sensitive: bool = False,
+    use_regex: bool = False,
+    search_filenames: bool = False,
+    operator: str = 'AND'
+) -> List[SearchResult]
+```
+
+フォルダ内の全ファイルを再帰的に検索。
+
+**パラメータ:**
+- `folder_path`: 検索対象のルートフォルダ
+- `tree_model`: ファイルシステムモデル
+- `query`: 検索クエリ
+- `case_sensitive`: 大文字小文字を区別するか
+- `use_regex`: 正規表現を使用するか
+- `search_filenames`: ファイル名のみを検索するか
+- `operator`: マルチキーワード検索時の演算子（"AND" or "OR"）
+
+**戻り値:**
+- `List[SearchResult]`: 検索結果のリスト
+
+#### _collect_files_recursively()
+
+```python
+def _collect_files_recursively(
+    tree_model: QFileSystemModel,
+    folder_path: str
+) -> List[str]
+```
+
+TreeModel から再帰的にすべてのファイルパスを収集。
+
+#### _search_file()
+
+```python
+def _search_file(
+    file_path: str,
+    query: str,
+    case_sensitive: bool
+) -> List[SearchResult]
+```
+
+単純な文字列検索（部分一致）。
+
+#### _search_file_regex()
+
+```python
+def _search_file_regex(
+    file_path: str,
+    pattern: str,
+    case_sensitive: bool
+) -> List[SearchResult]
+```
+
+正規表現パターンマッチング検索。
+
+#### _search_multi_keyword()
+
+```python
+def _search_multi_keyword(
+    file_path: str,
+    keywords: List[str],
+    operator: str,
+    case_sensitive: bool
+) -> List[SearchResult]
+```
+
+複数キーワードでの検索（AND/OR演算）。
+
+#### _match_filename()
+
+```python
+def _match_filename(
+    filename: str,
+    query: str,
+    case_sensitive: bool
+) -> bool
+```
+
+ファイル名が検索クエリにマッチするかチェック。
+
+### エラー処理
+
+- `UnicodeDecodeError`: ファイルをスキップ
+- `PermissionError`: ファイルをスキップ
+- `FileNotFoundError`: ファイルをスキップ
+- `OSError`: ファイルをスキップ
+- 正規表現エラー: 空の結果を返す
+
+---
+
+## BookmarkEntry
+
+### 概要
+
+ブックマークの単一エントリを表すデータクラス。
+
+### フィールド
+
+| フィールド | 型 | 説明 |
+|----------|-----|------|
+| `file_path` | str | ファイルの絶対パス |
+| `file_name` | str | ファイル名（basename） |
+| `folder_path` | str | 親ディレクトリパス |
+| `added_timestamp` | float | 追加日時（UNIX時刻） |
+| `last_accessed` | float | 最終アクセス日時（UNIX時刻） |
+| `note` | str | メモ（デフォルト: ""） |
+
+### 使用例
+
+```python
+bookmark = BookmarkEntry(
+    file_path="C:/path/to/file.md",
+    file_name="file.md",
+    folder_path="C:/path/to",
+    added_timestamp=time.time(),
+    last_accessed=time.time(),
+    note="Important document"
+)
+```
+
+---
+
+## BookmarkManager
+
+### 概要
+
+ブックマークの管理を行うクラス。JSON形式で永続化。
+
+### 初期化
+
+```python
+def __init__(self)
+```
+
+- ブックマークファイルパス: `~/.markdown-viewer/bookmarks.json`
+- 初期化時に既存ブックマークを読み込み
+
+### 主要メソッド
+
+#### add_bookmark()
+
+```python
+def add_bookmark(file_path: str, note: str = "") -> bool
+```
+
+ブックマークを追加。既に存在する場合は `False` を返す。
+
+#### remove_bookmark()
+
+```python
+def remove_bookmark(file_path: str) -> bool
+```
+
+ブックマークを削除。削除成功時は `True` を返す。
+
+#### is_bookmarked()
+
+```python
+def is_bookmarked(file_path: str) -> bool
+```
+
+ファイルがブックマークされているかチェック。
+
+#### get_all_bookmarks()
+
+```python
+def get_all_bookmarks() -> List[BookmarkEntry]
+```
+
+全ブックマークを最終アクセス日時の降順で取得。
+
+#### update_access_time()
+
+```python
+def update_access_time(file_path: str) -> bool
+```
+
+ブックマークの最終アクセス時刻を更新。
+
+### 内部メソッド
+
+#### _load_bookmarks()
+
+```python
+def _load_bookmarks() -> List[BookmarkEntry]
+```
+
+JSON ファイルからブックマークを読み込み。
+
+#### _save_bookmarks()
+
+```python
+def _save_bookmarks() -> bool
+```
+
+ブックマークを JSON ファイルに保存。
+
+### JSON形式
+
+```json
+{
+  "version": "1.0",
+  "bookmarks": [
+    {
+      "file_path": "C:/path/to/file.md",
+      "file_name": "file.md",
+      "folder_path": "C:/path/to",
+      "added_timestamp": 1234567890.0,
+      "last_accessed": 1234567890.0,
+      "note": ""
+    }
+  ]
+}
+```
+
+### エラー処理
+
+- JSON読み込み失敗: 空のリストを返す
+- JSON保存失敗: `False` を返す
+- ディレクトリ作成失敗: 例外を返す
 
 ---
 
@@ -164,6 +441,8 @@ SESSION_FILE = SESSION_DIR / "session.json"
 - ウィンドウサイズ (width, height)
 - タブ情報（フォルダパス、選択ファイル、フィルターインデックス）
 - アクティブタブインデックス
+- 最近開いたファイル一覧（最大10件）
+- 検索履歴（最大5件）
 
 #### `load_session(self) -> dict | None`
 
@@ -171,6 +450,101 @@ SESSION_FILE = SESSION_DIR / "session.json"
 |--------|------|
 | dict | セッションデータ |
 | None | ファイルが存在しないまたは読み込み失敗 |
+
+#### `add_recent_file(self, file_path: str) -> None`
+
+最近開いたファイルに追加。既存の同じパスを削除してから先頭に追加（重複排除＋順序更新）。最大10件まで保持。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| file_path | str | ファイルの絶対パス |
+
+#### `get_recent_files(self) -> List[dict]`
+
+最近開いたファイル一覧を取得。
+
+| 戻り値 | 説明 |
+|--------|------|
+| List[dict] | ファイル情報のリスト（最大10件） |
+
+**リスト要素の形式:**
+```python
+{
+    "file_path": "C:/path/to/file.md",
+    "file_name": "file.md",
+    "folder_path": "C:/path/to",
+    "last_accessed": 1234567890.0
+}
+```
+
+#### `add_search_history(self, query: str, options: dict) -> None`
+
+検索履歴に追加。最大5件まで保持（古いものから削除）。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| query | str | 検索クエリ |
+| options | dict | 検索オプション（case_sensitive, regex, search_filenames, operator） |
+
+#### `get_search_history(self) -> List[dict]`
+
+検索履歴を取得。
+
+| 戻り値 | 説明 |
+|--------|------|
+| List[dict] | 検索履歴のリスト（最大5件） |
+
+**リスト要素の形式:**
+```python
+{
+    "query": "keyword",
+    "case_sensitive": False,
+    "regex": False,
+    "search_filenames": False,
+    "operator": "AND",
+    "timestamp": 1234567890.0
+}
+```
+
+### セッションファイル形式
+
+```json
+{
+  "version": "2.0",
+  "window": {
+    "x": 100,
+    "y": 100,
+    "width": 1400,
+    "height": 900
+  },
+  "tabs": [
+    {
+      "folder_path": "C:/path/to/folder",
+      "current_file": "C:/path/to/file.md",
+      "filter_index": 0
+    }
+  ],
+  "active_tab": 0,
+  "recent_files": [
+    {
+      "file_path": "C:/path/to/file.md",
+      "file_name": "file.md",
+      "folder_path": "C:/path/to",
+      "last_accessed": 1234567890.0
+    }
+  ],
+  "search_history": [
+    {
+      "query": "keyword",
+      "case_sensitive": false,
+      "regex": false,
+      "search_filenames": false,
+      "operator": "AND",
+      "timestamp": 1234567890.0
+    }
+  ]
+}
+```
 
 ---
 
@@ -192,7 +566,18 @@ SESSION_FILE = SESSION_DIR / "session.json"
 | web_page | MarkdownWebPage | リンクインターセプト用ページ |
 | stats_labels | dict | 統計情報ラベル群 |
 | filter_combo | QComboBox | ファイルフィルタードロップダウン |
-| navigation_history | list | ナビゲーション履歴スタック |
+| navigation_history | list | ナビゲーション履歴スタック（tuple形式） |
+| search_input | QLineEdit | 検索入力ボックス |
+| search_button | QPushButton | 検索実行ボタン |
+| case_sensitive_check | QCheckBox | 大文字小文字区別チェックボックス |
+| regex_check | QCheckBox | 正規表現検索チェックボックス |
+| filename_check | QCheckBox | ファイル名検索チェックボックス |
+| recent_btn | QPushButton | 最近開いたファイルボタン |
+| bookmark_btn | QPushButton | ブックマーク一覧ボタン |
+| current_search_query | str | 現在の検索クエリ |
+| current_search_results | List[SearchResult] | 現在の検索結果 |
+| _highlight_line | int | ハイライト対象の行番号 |
+| _highlight_keyword | str | ハイライト対象のキーワード |
 
 ### メソッド
 
