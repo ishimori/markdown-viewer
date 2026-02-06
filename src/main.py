@@ -556,7 +556,8 @@ def cdxml_to_svg(cdxml_content: str) -> tuple[str, int]:
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSplitter, QTreeView,
     QVBoxLayout, QHBoxLayout, QWidget, QToolBar, QFileDialog, QMessageBox,
-    QTabWidget, QTabBar, QLabel, QFrame, QMenu, QComboBox, QSizePolicy
+    QTabWidget, QTabBar, QLabel, QFrame, QMenu, QComboBox, QSizePolicy,
+    QPushButton, QLineEdit, QCheckBox
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
