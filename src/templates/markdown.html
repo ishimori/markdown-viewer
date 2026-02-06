@@ -71,6 +71,15 @@
             font-weight: bold;
             color: #1976d2;
         }
+        /* Flash animation for highlighted line */
+        .gutter-line.flash {
+            background: #ffeb3b !important;
+            animation: flash-fade 2s ease-out;
+        }
+        @keyframes flash-fade {
+            0% { background: #ffeb3b; }
+            100% { background: transparent; }
+        }
         /* Copy toast notification */
         #copy-toast {
             position: fixed;
@@ -473,6 +482,73 @@
 
         function toggleOverview() {
             document.getElementById('sidebar-container').classList.toggle('closed');
+        }
+
+        // Scroll to specific line and flash highlight
+        function scrollToLine(lineNumber) {
+            if (!lineNumber || lineNumber === 0) return;
+
+            const gutterLines = document.querySelectorAll('.gutter-line');
+            for (const el of gutterLines) {
+                const num = parseInt(el.textContent, 10);
+                if (num === lineNumber) {
+                    const rect = el.getBoundingClientRect();
+                    const scrollY = window.pageYOffset + rect.top - 100;
+                    window.scrollTo({
+                        top: scrollY,
+                        behavior: 'smooth'
+                    });
+
+                    // Flash animation
+                    el.classList.add('flash');
+                    setTimeout(() => el.classList.remove('flash'), 2000);
+                    break;
+                }
+            }
+        }
+
+        // Highlight keyword in content
+        function highlightKeyword(keyword) {
+            if (!keyword || keyword === '') return;
+
+            const content = document.getElementById('content');
+            const walker = document.createTreeWalker(
+                content,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+            );
+
+            const nodesToReplace = [];
+            while (walker.nextNode()) {
+                const node = walker.currentNode;
+                const text = node.nodeValue;
+                if (text && text.toLowerCase().includes(keyword.toLowerCase())) {
+                    nodesToReplace.push(node);
+                }
+            }
+
+            nodesToReplace.forEach(node => {
+                const span = document.createElement('span');
+                const regex = new RegExp('(' + keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+                span.innerHTML = node.nodeValue.replace(
+                    regex,
+                    '<mark style="background: #ff5252; color: white; padding: 2px 4px; border-radius: 3px; font-weight: 600;">$1</mark>'
+                );
+                node.parentNode.replaceChild(span, node);
+            });
+        }
+
+        // Apply search highlighting if provided
+        const targetLine = $TARGET_LINE$;
+        const searchKeyword = "$SEARCH_KEYWORD$";
+
+        if (targetLine > 0) {
+            setTimeout(() => scrollToLine(targetLine), 200);
+        }
+
+        if (searchKeyword) {
+            setTimeout(() => highlightKeyword(searchKeyword), 100);
         }
 
     </script>

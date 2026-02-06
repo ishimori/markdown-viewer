@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>$CSS_CONTENT$</style>
+    <style>
+        /* List view specific styles */
+        body {
+            margin: 0;
+            padding: 20px 40px;
+            background: var(--bg-color, #f8faff);
+            font-family: "Meiryo", "Meiryo UI", sans-serif;
+        }
+
+        .back-button {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 1000;
+            padding: 8px 16px;
+            background: #1976d2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: background 0.2s;
+        }
+
+        .back-button:hover {
+            background: #1565c0;
+        }
+
+        .export-button {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            z-index: 1000;
+            padding: 8px 16px;
+            background: #43a047;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: background 0.2s;
+        }
+
+        .export-button:hover {
+            background: #388e3c;
+        }
+
+        .list-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding-top: 20px;
+        }
+
+        .list-header {
+            background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+            color: white;
+            padding: 20px 24px;
+            border-radius: 8px 8px 0 0;
+            margin-bottom: 0;
+        }
+
+        .list-header h2 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .list-stats {
+            margin-top: 8px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .list-content {
+            background: white;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .list-item {
+            padding: 16px 24px;
+            border-bottom: 1px solid #e0e0e0;
+            cursor: pointer;
+            transition: background 0.2s;
+            text-decoration: none;
+            display: block;
+            color: inherit;
+        }
+
+        .list-item:last-child {
+            border-bottom: none;
+        }
+
+        .list-item:hover {
+            background: #f5f5f5;
+        }
+
+        .item-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .item-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .item-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #0d47a1;
+            flex-grow: 1;
+        }
+
+        .item-meta {
+            font-size: 12px;
+            color: #5c6bc0;
+        }
+
+        .item-preview {
+            margin-left: 32px;
+            padding: 8px 12px;
+            background: #f0f4f8;
+            border-left: 3px solid #90caf9;
+            border-radius: 4px;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #546e7a;
+            font-family: "SFMono-Regular", Consolas, monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .item-context {
+            margin-left: 32px;
+            margin-top: 4px;
+            font-size: 12px;
+            color: #90a4ae;
+        }
+
+        .keyword-highlight {
+            background: #fff59d;
+            padding: 2px 4px;
+            border-radius: 2px;
+            font-weight: 600;
+        }
+
+        .match-count {
+            display: inline-block;
+            background: #ff5252;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .item-path {
+            font-size: 11px;
+            color: #90a4ae;
+            margin-left: 32px;
+            margin-top: 4px;
+        }
+
+        .empty-state {
+            padding: 60px 24px;
+            text-align: center;
+            color: #90a4ae;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .empty-state-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #546e7a;
+            margin-bottom: 8px;
+        }
+
+        .empty-state-message {
+            font-size: 14px;
+        }
+
+        /* Toast notification */
+        #toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: rgba(13, 71, 161, 0.9);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            pointer-events: none;
+        }
+
+        #toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <!-- Back Button -->
+    <button class="back-button" onclick="window.location.href='app://back'">
+        ← Back
+    </button>
+
+    <!-- Export Button (for search results) -->
+    <button class="export-button" id="export-button" style="$EXPORT_BUTTON_STYLE$"
+            onclick="window.location.href='app://export-results'">
+        📋 Export
+    </button>
+
+    <div class="list-container">
+        <div class="list-header">
+            <h2>$TITLE$</h2>
+            <div class="list-stats">$STATS$</div>
+        </div>
+
+        <div class="list-content">
+            $LIST_ITEMS$
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div id="toast"></div>
+
+    <script>
+        // Highlight keywords in preview
+        function highlightKeywords(text, keywords) {
+            if (!keywords || keywords.length === 0) {
+                return text;
+            }
+
+            let result = text;
+            keywords.forEach(keyword => {
+                const regex = new RegExp('(' + keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+                result = result.replace(regex, '<span class="keyword-highlight">$1</span>');
+            });
+            return result;
+        }
+
+        // Show toast notification
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        // Apply keyword highlighting on load
+        document.addEventListener('DOMContentLoaded', function() {
+            const previews = document.querySelectorAll('.item-preview');
+            const searchQuery = '$SEARCH_QUERY$';
+            if (searchQuery) {
+                const keywords = searchQuery.split(' ');
+                previews.forEach(preview => {
+                    const text = preview.textContent;
+                    preview.innerHTML = highlightKeywords(text, keywords);
+                });
+            }
+        });
+    </script>
+</body>
+</html>

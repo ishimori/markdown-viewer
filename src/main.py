@@ -8,9 +8,14 @@ import os
 import json
 import csv
 import xml.etree.ElementTree as ET
+import re
+import time
 from io import StringIO
 from pathlib import Path
 from enum import Enum
+from dataclasses import dataclass
+from typing import List, Optional
+from urllib.parse import quote, urlparse, parse_qs
 
 
 def get_resource_path(relative_path: str) -> Path:
@@ -72,6 +77,299 @@ def detect_file_type(file_path: str) -> FileType:
     """Detect file type from extension"""
     ext = os.path.splitext(file_path)[1].lower()
     return FILE_TYPE_MAP.get(ext, FileType.UNKNOWN)
+
+
+# --- Search and Bookmark System ---
+
+@dataclass
+class SearchResult:
+    """Represents a single search result"""
+    file_path: str
+    file_name: str
+    line_number: int
+    line_content: str
+    context_before: str
+    context_after: str
+    match_count: int
+
+
+class SearchEngine:
+    """Handle full-text search across files in tree view"""
+
+    def __init__(self):
+        self.results = []
+        self.total_matches = 0
+        self.total_files = 0
+
+    def search(self, folder_path: str, tree_model, query: str,
+               case_sensitive: bool = False, use_regex: bool = False,
+               search_filenames: bool = False, operator: str = 'AND') -> List[SearchResult]:
+        """Perform search across all files visible in tree view"""
+
+        results = []
+        files_searched = set()
+
+        # Get all files recursively from tree model
+        all_files = self._collect_files_recursively(tree_model, folder_path)
+
+        for file_path in all_files:
+            if not os.path.isfile(file_path):
+                continue
+
+            # Search in filename if requested
+            if search_filenames:
+                filename = os.path.basename(file_path)
+                if self._match_filename(filename, query, case_sensitive):
+                    results.append(SearchResult(
+                        file_path=file_path,
+                        file_name=filename,
+                        line_number=0,
+                        line_content="[Filename match]",
+                        context_before="",
+                        context_after="",
+                        match_count=1
+                    ))
+                    files_searched.add(file_path)
+                    continue
+
+            # Search in file content
+            if ' ' in query and operator in ['AND', 'OR']:
+                keywords = query.split()
+                file_results = self._search_multi_keyword(file_path, keywords, operator, case_sensitive)
+            elif use_regex:
+                file_results = self._search_file_regex(file_path, query, case_sensitive)
+            else:
+                file_results = self._search_file(file_path, query, case_sensitive)
+
+            if file_results:
+                results.extend(file_results)
+                files_searched.add(file_path)
+
+        self.results = results
+        self.total_matches = len(results)
+        self.total_files = len(files_searched)
+        return results
+
+    def _collect_files_recursively(self, tree_model, folder_path: str) -> List[str]:
+        """Recursively collect all file paths from tree model"""
+        files = []
+        root_index = tree_model.index(folder_path)
+
+        def traverse(parent_index):
+            for row in range(tree_model.rowCount(parent_index)):
+                index = tree_model.index(row, 0, parent_index)
+                file_path = tree_model.filePath(index)
+
+                if os.path.isfile(file_path):
+                    files.append(file_path)
+                elif os.path.isdir(file_path):
+                    traverse(index)  # Recurse into subdirectory
+
+        traverse(root_index)
+        return files
+
+    def _match_filename(self, filename: str, query: str, case_sensitive: bool) -> bool:
+        """Check if query matches filename"""
+        search_name = filename if case_sensitive else filename.lower()
+        search_query = query if case_sensitive else query.lower()
+        return search_query in search_name
+
+    def _search_file(self, file_path: str, query: str, case_sensitive: bool) -> List[SearchResult]:
+        """Simple text search with context"""
+        results = []
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except (UnicodeDecodeError, PermissionError, FileNotFoundError, OSError):
+            return results
+
+        search_query = query if case_sensitive else query.lower()
+        filename = os.path.basename(file_path)
+
+        for line_num, line in enumerate(lines, 1):
+            search_line = line if case_sensitive else line.lower()
+
+            if search_query in search_line:
+                match_count = search_line.count(search_query)
+                context_before = lines[line_num - 2].strip() if line_num > 1 else ""
+                context_after = lines[line_num].strip() if line_num < len(lines) else ""
+
+                results.append(SearchResult(
+                    file_path=file_path,
+                    file_name=filename,
+                    line_number=line_num,
+                    line_content=line.strip(),
+                    context_before=context_before,
+                    context_after=context_after,
+                    match_count=match_count
+                ))
+
+        return results
+
+    def _search_file_regex(self, file_path: str, pattern: str, case_sensitive: bool) -> List[SearchResult]:
+        """Regex search with context"""
+        results = []
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except (UnicodeDecodeError, PermissionError, FileNotFoundError, OSError):
+            return results
+
+        try:
+            flags = 0 if case_sensitive else re.IGNORECASE
+            regex = re.compile(pattern, flags)
+        except re.error:
+            return results
+
+        filename = os.path.basename(file_path)
+
+        for line_num, line in enumerate(lines, 1):
+            matches = regex.findall(line)
+            if matches:
+                match_count = len(matches)
+                context_before = lines[line_num - 2].strip() if line_num > 1 else ""
+                context_after = lines[line_num].strip() if line_num < len(lines) else ""
+
+                results.append(SearchResult(
+                    file_path=file_path,
+                    file_name=filename,
+                    line_number=line_num,
+                    line_content=line.strip(),
+                    context_before=context_before,
+                    context_after=context_after,
+                    match_count=match_count
+                ))
+
+        return results
+
+    def _search_multi_keyword(self, file_path: str, keywords: List[str],
+                             operator: str, case_sensitive: bool) -> List[SearchResult]:
+        """Multi-keyword search with AND/OR operators"""
+        results = []
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except (UnicodeDecodeError, PermissionError, FileNotFoundError, OSError):
+            return results
+
+        filename = os.path.basename(file_path)
+
+        for line_num, line in enumerate(lines, 1):
+            search_line = line if case_sensitive else line.lower()
+            search_keywords = keywords if case_sensitive else [k.lower() for k in keywords]
+
+            if operator == 'AND':
+                match = all(kw in search_line for kw in search_keywords)
+            else:  # OR
+                match = any(kw in search_line for kw in search_keywords)
+
+            if match:
+                match_count = sum(search_line.count(kw) for kw in search_keywords)
+                context_before = lines[line_num - 2].strip() if line_num > 1 else ""
+                context_after = lines[line_num].strip() if line_num < len(lines) else ""
+
+                results.append(SearchResult(
+                    file_path=file_path,
+                    file_name=filename,
+                    line_number=line_num,
+                    line_content=line.strip(),
+                    context_before=context_before,
+                    context_after=context_after,
+                    match_count=match_count
+                ))
+
+        return results
+
+
+@dataclass
+class BookmarkEntry:
+    """Represents a single bookmark"""
+    file_path: str
+    file_name: str
+    folder_path: str
+    added_timestamp: float
+    last_accessed: float
+    note: str = ""
+
+
+class BookmarkManager:
+    """Manage user bookmarks stored in JSON file"""
+
+    def __init__(self):
+        self.bookmark_dir = Path.home() / ".markdown-viewer"
+        self.bookmark_file = self.bookmark_dir / "bookmarks.json"
+        self.bookmarks = self._load_bookmarks()
+
+    def add_bookmark(self, file_path: str, note: str = "") -> bool:
+        """Add file to bookmarks"""
+        if self.is_bookmarked(file_path):
+            return False
+
+        bookmark = BookmarkEntry(
+            file_path=file_path,
+            file_name=os.path.basename(file_path),
+            folder_path=os.path.dirname(file_path),
+            added_timestamp=time.time(),
+            last_accessed=time.time(),
+            note=note
+        )
+        self.bookmarks.append(bookmark)
+        return self._save_bookmarks()
+
+    def remove_bookmark(self, file_path: str) -> bool:
+        """Remove file from bookmarks"""
+        original_count = len(self.bookmarks)
+        self.bookmarks = [b for b in self.bookmarks if b.file_path != file_path]
+        if len(self.bookmarks) < original_count:
+            return self._save_bookmarks()
+        return False
+
+    def is_bookmarked(self, file_path: str) -> bool:
+        """Check if file is bookmarked"""
+        return any(b.file_path == file_path for b in self.bookmarks)
+
+    def get_all_bookmarks(self) -> List[BookmarkEntry]:
+        """Get all bookmarks sorted by last access time"""
+        return sorted(self.bookmarks, key=lambda b: b.last_accessed, reverse=True)
+
+    def update_access_time(self, file_path: str) -> bool:
+        """Update last accessed time for a bookmark"""
+        for bookmark in self.bookmarks:
+            if bookmark.file_path == file_path:
+                bookmark.last_accessed = time.time()
+                return self._save_bookmarks()
+        return False
+
+    def _load_bookmarks(self) -> List[BookmarkEntry]:
+        """Load from bookmarks.json"""
+        if not self.bookmark_file.exists():
+            return []
+
+        try:
+            with open(self.bookmark_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return [BookmarkEntry(**b) for b in data.get('bookmarks', [])]
+        except Exception as e:
+            print(f"Error loading bookmarks: {e}")
+            return []
+
+    def _save_bookmarks(self) -> bool:
+        """Save to bookmarks.json"""
+        try:
+            self.bookmark_dir.mkdir(parents=True, exist_ok=True)
+            data = {
+                'version': '1.0',
+                'bookmarks': [vars(b) for b in self.bookmarks]
+            }
+            with open(self.bookmark_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception as e:
+            print(f"Error saving bookmarks: {e}")
+            return False
 
 
 # --- CDXML to SVG Converter ---
@@ -337,6 +635,61 @@ QT_STYLES = {
             font-size: 11px;
             padding: 0 8px;
         }
+    """,
+    'search_panel': """
+        QFrame {
+            background: #f0f4f8;
+            border: 1px solid #90caf9;
+            border-radius: 4px;
+            padding: 8px;
+        }
+        QLineEdit {
+            padding: 6px 8px;
+            border: 1px solid #90caf9;
+            border-radius: 4px;
+            background: white;
+            font-size: 12px;
+            color: #1e3a5f;
+        }
+        QLineEdit:focus {
+            border-color: #1976d2;
+        }
+        QPushButton {
+            padding: 5px 10px;
+            border: 1px solid #1976d2;
+            border-radius: 4px;
+            background: #e3f2fd;
+            font-size: 11px;
+            color: #0d47a1;
+            font-weight: 500;
+        }
+        QPushButton:hover {
+            background: #bbdefb;
+        }
+        QPushButton:pressed {
+            background: #90caf9;
+        }
+        QPushButton:disabled {
+            background: #e0e0e0;
+            color: #9e9e9e;
+            border-color: #bdbdbd;
+        }
+        QCheckBox {
+            font-size: 10px;
+            spacing: 4px;
+            color: #5c6bc0;
+        }
+        QCheckBox::indicator {
+            width: 14px;
+            height: 14px;
+            border: 1px solid #90caf9;
+            border-radius: 3px;
+            background: white;
+        }
+        QCheckBox::indicator:checked {
+            background: #1976d2;
+            border-color: #1976d2;
+        }
     """
 }
 
@@ -481,6 +834,82 @@ class SessionManager:
             print(f"Error loading session: {e}")
         return None
 
+    def add_recent_file(self, file_path: str) -> None:
+        """Add file to recent files list (max 10)"""
+        session_data = self.load_session() or {}
+
+        recent_files = session_data.get('recent_files', [])
+
+        # Remove if already exists
+        recent_files = [f for f in recent_files if f.get('file_path') != file_path]
+
+        # Add to front
+        recent_files.insert(0, {
+            'file_path': file_path,
+            'file_name': os.path.basename(file_path),
+            'folder_path': os.path.dirname(file_path),
+            'last_accessed': time.time()
+        })
+
+        # Keep only last 10
+        recent_files = recent_files[:10]
+
+        session_data['recent_files'] = recent_files
+        session_data['version'] = '2.0'
+
+        # Save
+        try:
+            self.session_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.session_file, 'w', encoding='utf-8') as f:
+                json.dump(session_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error saving recent file: {e}")
+
+    def get_recent_files(self) -> List[dict]:
+        """Get recent files sorted by last access time"""
+        session_data = self.load_session() or {}
+        recent_files = session_data.get('recent_files', [])
+        # Filter out files that no longer exist
+        return [f for f in recent_files if os.path.exists(f.get('file_path', ''))]
+
+    def add_search_history(self, query: str, case_sensitive: bool, use_regex: bool,
+                          search_filenames: bool, operator: str) -> None:
+        """Add search to history (max 5)"""
+        session_data = self.load_session() or {}
+
+        history = session_data.get('search_history', [])
+
+        # Don't add duplicate consecutive searches
+        if history and history[0].get('query') == query:
+            return
+
+        history.insert(0, {
+            'query': query,
+            'case_sensitive': case_sensitive,
+            'regex': use_regex,
+            'search_filenames': search_filenames,
+            'operator': operator,
+            'timestamp': time.time()
+        })
+
+        # Keep only last 5
+        history = history[:5]
+
+        session_data['search_history'] = history
+        session_data['version'] = '2.0'
+
+        try:
+            self.session_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.session_file, 'w', encoding='utf-8') as f:
+                json.dump(session_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error saving search history: {e}")
+
+    def get_search_history(self) -> List[dict]:
+        """Get search history"""
+        session_data = self.load_session() or {}
+        return session_data.get('search_history', [])
+
 
 class FolderTab(QWidget):
     """A single folder tab containing tree view and web view"""
@@ -504,7 +933,71 @@ class FolderTab(QWidget):
         self.stats_labels = {}
         self.filter_combo = None
         self.navigation_history = []  # Stack for back navigation
+        # Search panel components
+        self.search_input = None
+        self.search_button = None
+        self.case_sensitive_check = None
+        self.regex_check = None
+        self.filename_check = None
+        self.recent_btn = None
+        self.bookmark_btn = None
+        self.current_search_query = ""
+        self.current_search_results = []
+        self._highlight_line = 0
+        self._highlight_keyword = ""
         self._setup_ui()
+
+    def _setup_search_panel(self):
+        """Create search panel widget"""
+        from PyQt6.QtWidgets import QLineEdit, QPushButton, QCheckBox
+
+        search_panel = QFrame()
+        search_panel.setStyleSheet(QT_STYLES['search_panel'])
+        search_layout = QVBoxLayout(search_panel)
+        search_layout.setContentsMargins(6, 6, 6, 6)
+        search_layout.setSpacing(6)
+
+        # Search input
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search in files...")
+        search_layout.addWidget(self.search_input)
+
+        # Options row
+        options_layout = QHBoxLayout()
+        options_layout.setSpacing(8)
+        self.case_sensitive_check = QCheckBox("Aa")
+        self.case_sensitive_check.setToolTip("Case sensitive")
+        self.regex_check = QCheckBox(".*")
+        self.regex_check.setToolTip("Regular expression")
+        self.filename_check = QCheckBox("📄")
+        self.filename_check.setToolTip("Search in filenames")
+
+        options_layout.addWidget(self.case_sensitive_check)
+        options_layout.addWidget(self.regex_check)
+        options_layout.addWidget(self.filename_check)
+        options_layout.addStretch()
+        search_layout.addLayout(options_layout)
+
+        # Buttons row
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(4)
+        self.search_button = QPushButton("🔍")
+        self.search_button.setToolTip("Search")
+        self.search_button.setMaximumWidth(40)
+        self.recent_btn = QPushButton("⏱")
+        self.recent_btn.setToolTip("Recent files")
+        self.recent_btn.setMaximumWidth(40)
+        self.bookmark_btn = QPushButton("⭐")
+        self.bookmark_btn.setToolTip("Bookmarks")
+        self.bookmark_btn.setMaximumWidth(40)
+
+        buttons_layout.addWidget(self.search_button)
+        buttons_layout.addWidget(self.recent_btn)
+        buttons_layout.addWidget(self.bookmark_btn)
+        buttons_layout.addStretch()
+        search_layout.addLayout(buttons_layout)
+
+        return search_panel
 
     def _setup_ui(self):
         """Setup splitter layout for this tab"""
@@ -526,6 +1019,10 @@ class FolderTab(QWidget):
         self.filter_combo.setStyleSheet(QT_STYLES['filter_combo'])
         self.filter_combo.currentIndexChanged.connect(self._on_filter_changed)
         left_layout.addWidget(self.filter_combo)
+
+        # Search panel
+        search_panel = self._setup_search_panel()
+        left_layout.addWidget(search_panel)
 
         # Tree view setup with custom icon model
         self.tree_view = QTreeView()
@@ -662,8 +1159,11 @@ class MarkdownViewer(QMainWindow):
         self.mermaid_js_path = ""
         self.highlight_js_path = ""
         self.html_template = ""
+        self.list_view_template = ""
         self.tab_widget = None
         self.session_manager = SessionManager()
+        self.search_engine = SearchEngine()
+        self.bookmark_manager = BookmarkManager()
         self._pending_load_finished_handler = None  # Track current loadFinished handler
 
         # File watcher for auto-reload
@@ -708,6 +1208,11 @@ class MarkdownViewer(QMainWindow):
         template_path = get_resource_path("templates/markdown.html")
         if template_path.exists():
             self.html_template = template_path.read_text(encoding="utf-8")
+
+        # Load list view template
+        list_view_template_path = get_resource_path("templates/list_view.html")
+        if list_view_template_path.exists():
+            self.list_view_template = list_view_template_path.read_text(encoding="utf-8")
 
     def _setup_ui(self):
         """Setup main UI with tab widget"""
@@ -754,6 +1259,12 @@ class MarkdownViewer(QMainWindow):
         toggle_overview_action.triggered.connect(self._toggle_overview)
         toolbar.addAction(toggle_overview_action)
 
+        # Bookmark toggle action
+        self.bookmark_action = QAction("⭐ Bookmark", self)
+        self.bookmark_action.setShortcut("Ctrl+B")
+        self.bookmark_action.triggered.connect(self._toggle_bookmark_current_file)
+        toolbar.addAction(self.bookmark_action)
+
         # Spacer to push path label to the right
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -793,6 +1304,49 @@ class MarkdownViewer(QMainWindow):
         # Zoom reset (Ctrl+0)
         zoom_reset_shortcut = QShortcut(QKeySequence("Ctrl+0"), self)
         zoom_reset_shortcut.activated.connect(self._zoom_reset)
+
+        # Focus search box (Ctrl+F)
+        search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        search_shortcut.activated.connect(self._focus_search_box)
+
+        # Show recent files (Ctrl+H)
+        recent_shortcut = QShortcut(QKeySequence("Ctrl+H"), self)
+        recent_shortcut.activated.connect(lambda: self._show_recent_files(self._get_current_tab()))
+
+        # Toggle bookmark (Ctrl+B)
+        bookmark_shortcut = QShortcut(QKeySequence("Ctrl+B"), self)
+        bookmark_shortcut.activated.connect(self._toggle_current_bookmark)
+
+        # Go back (ESC)
+        back_shortcut = QShortcut(QKeySequence("Esc"), self)
+        back_shortcut.activated.connect(self._handle_escape_key)
+
+    def _focus_search_box(self):
+        """Focus the search input box in current tab"""
+        tab = self._get_current_tab()
+        if tab and tab.search_input:
+            tab.search_input.setFocus()
+            tab.search_input.selectAll()
+
+    def _toggle_current_bookmark(self):
+        """Toggle bookmark for currently opened file"""
+        tab = self._get_current_tab()
+        if tab and tab.current_file:
+            if self.bookmark_manager.is_bookmarked(tab.current_file):
+                self.bookmark_manager.remove_bookmark(tab.current_file)
+                # Show notification via JavaScript if web view is available
+                if tab.web_view:
+                    tab.web_view.page().runJavaScript("if(typeof showToast !== 'undefined') showToast('Bookmark removed');")
+            else:
+                self.bookmark_manager.add_bookmark(tab.current_file)
+                if tab.web_view:
+                    tab.web_view.page().runJavaScript("if(typeof showToast !== 'undefined') showToast('Bookmark added');")
+
+    def _handle_escape_key(self):
+        """Handle ESC key - go back if navigation history exists"""
+        tab = self._get_current_tab()
+        if tab and tab.navigation_history:
+            self._navigate_back(tab)
 
     def _zoom_in(self):
         """Increase zoom level of current tab's web view"""
@@ -838,6 +1392,12 @@ class MarkdownViewer(QMainWindow):
         tab.tree_view.customContextMenuRequested.connect(
             lambda pos, t=tab: self._show_tree_context_menu(t, pos)
         )
+
+        # Connect search panel buttons
+        tab.search_button.clicked.connect(lambda checked, t=tab: self._perform_search(t))
+        tab.search_input.returnPressed.connect(lambda t=tab: self._perform_search(t))
+        tab.recent_btn.clicked.connect(lambda checked, t=tab: self._show_recent_files(t))
+        tab.bookmark_btn.clicked.connect(lambda checked, t=tab: self._show_bookmarks(t))
 
         if folder_path:
             tab.set_folder(folder_path)
@@ -914,6 +1474,13 @@ class MarkdownViewer(QMainWindow):
             self.setWindowTitle(self.app_title)
             self.path_label.setText("")
 
+        # Update bookmark button state
+        if tab and tab.current_file:
+            is_bookmarked = self.bookmark_manager.is_bookmarked(tab.current_file)
+            self._update_bookmark_button(is_bookmarked)
+        else:
+            self._update_bookmark_button(False)
+
     def _update_tab_title(self, tab: FolderTab):
         """Update tab title"""
         index = self.tab_widget.indexOf(tab)
@@ -942,6 +1509,9 @@ class MarkdownViewer(QMainWindow):
             tab.current_file = file_path
             self._load_file(tab, file_path)
             self._update_window_title()
+
+            # Add to recent files
+            self.session_manager.add_recent_file(file_path)
 
     def _load_markdown_file(self, tab: FolderTab, file_path: str):
         """Load and render markdown file (or text file as markdown)"""
@@ -1071,6 +1641,16 @@ class MarkdownViewer(QMainWindow):
         html = html.replace('$FILE_PATH$', file_path)
         html = html.replace('$BACK_BUTTON_STYLE$', back_button_style)
 
+        # Add search highlighting placeholders
+        target_line = getattr(tab, '_highlight_line', 0)
+        search_keyword = getattr(tab, '_highlight_keyword', '')
+        html = html.replace('$TARGET_LINE$', str(target_line))
+        html = html.replace('$SEARCH_KEYWORD$', self._escape_for_js(search_keyword))
+
+        # Clear highlight info after rendering
+        tab._highlight_line = 0
+        tab._highlight_keyword = ""
+
         # Set base URL for relative links to work correctly
         if tab.current_file:
             base_url = QUrl.fromLocalFile(os.path.dirname(tab.current_file) + '/')
@@ -1111,6 +1691,203 @@ class MarkdownViewer(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load file:\n{e}")
+
+    def _perform_search(self, tab: FolderTab):
+        """Execute search and display results"""
+        query = tab.search_input.text().strip()
+        if not query:
+            return
+
+        if not tab.current_folder:
+            QMessageBox.warning(self, "No Folder", "Please open a folder first.")
+            return
+
+        # Get search options
+        case_sensitive = tab.case_sensitive_check.isChecked()
+        use_regex = tab.regex_check.isChecked()
+        search_filenames = tab.filename_check.isChecked()
+        operator = 'AND'  # Default operator
+
+        # Disable search button while searching
+        tab.search_button.setEnabled(False)
+        tab.search_button.setText("⏳")
+
+        try:
+            # Perform search
+            results = self.search_engine.search(
+                tab.current_folder,
+                tab.file_model,
+                query,
+                case_sensitive,
+                use_regex,
+                search_filenames,
+                operator
+            )
+
+            # Store results
+            tab.current_search_query = query
+            tab.current_search_results = results
+
+            # Add to search history
+            self.session_manager.add_search_history(query, case_sensitive, use_regex, search_filenames, operator)
+
+            # Save current state to navigation history
+            if tab.current_file:
+                tab.navigation_history.append(('file', tab.current_file))
+            elif tab.current_folder:
+                tab.navigation_history.append(('folder', tab.current_folder))
+
+            # Render results
+            self._render_search_results(tab, results, query)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Search Error", f"Failed to search:\n{e}")
+        finally:
+            # Re-enable search button
+            tab.search_button.setEnabled(True)
+            tab.search_button.setText("🔍")
+
+    def _render_search_results(self, tab: FolderTab, results: List[SearchResult], query: str):
+        """Render search results using list view template"""
+        # Generate statistics
+        total_matches = len(results)
+        total_files = len(set(r.file_path for r in results))
+        stats = f"{total_matches} match{'es' if total_matches != 1 else ''} in {total_files} file{'s' if total_files != 1 else ''}"
+
+        # Generate list items HTML
+        list_items_html = self._generate_list_items_html(results, 'search', query)
+
+        # Replace placeholders
+        html = self.list_view_template
+        html = html.replace('$CSS_CONTENT$', self.css_content)
+        html = html.replace('$TITLE$', f'Search Results: "{query}"')
+        html = html.replace('$STATS$', stats)
+        html = html.replace('$LIST_ITEMS$', list_items_html)
+        html = html.replace('$EXPORT_BUTTON_STYLE$', 'display: flex;')
+        html = html.replace('$SEARCH_QUERY$', self._escape_for_js(query))
+
+        # Set HTML
+        if tab.current_folder:
+            base_url = QUrl.fromLocalFile(tab.current_folder + '/')
+        else:
+            base_url = QUrl()
+        tab.web_view.setHtml(html, base_url)
+        self._update_window_title()
+
+    def _generate_list_items_html(self, items, list_type: str, keyword: str = "") -> str:
+        """Generate HTML for list items (search results, recent files, or bookmarks)"""
+        if not items:
+            if list_type == 'search':
+                return '''
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔍</div>
+                        <div class="empty-state-title">No results found</div>
+                        <div class="empty-state-message">Try different keywords or search options</div>
+                    </div>
+                '''
+            elif list_type == 'recent':
+                return '''
+                    <div class="empty-state">
+                        <div class="empty-state-icon">⏱</div>
+                        <div class="empty-state-title">No recent files</div>
+                        <div class="empty-state-message">Files you open will appear here</div>
+                    </div>
+                '''
+            elif list_type == 'bookmarks':
+                return '''
+                    <div class="empty-state">
+                        <div class="empty-state-icon">⭐</div>
+                        <div class="empty-state-title">No bookmarks yet</div>
+                        <div class="empty-state-message">Bookmark files to access them quickly</div>
+                    </div>
+                '''
+
+        html_parts = []
+
+        if list_type == 'search':
+            for result in items:
+                # Escape HTML characters
+                file_name = self._escape_html(result.file_name)
+                line_content = self._escape_html(result.line_content)
+                file_path = result.file_path.replace('\\', '/')
+                keyword_escaped = keyword.replace('\\', '\\\\').replace("'", "\\'")
+
+                # Create URL with query parameters (URL-encode file path and keyword)
+                url = f"app://search-result?file={quote(file_path)}&line={result.line_number}&keyword={quote(keyword)}"
+
+                match_badge = f'<span class="match-count">{result.match_count}×</span>' if result.match_count > 1 else ''
+
+                html_parts.append(f'''
+                    <a href="{url}" class="list-item">
+                        <div class="item-header">
+                            <span class="item-icon">📄</span>
+                            <span class="item-title">{file_name}</span>
+                            <span class="item-meta">Line {result.line_number} {match_badge}</span>
+                        </div>
+                        <div class="item-preview">{line_content}</div>
+                        <div class="item-path">{file_path}</div>
+                    </a>
+                ''')
+
+        elif list_type == 'recent':
+            for item in items:
+                file_name = self._escape_html(item.get('file_name', ''))
+                file_path = item.get('file_path', '').replace('\\', '/')
+                folder_path = self._escape_html(item.get('folder_path', ''))
+                url = f"app://open-file?file={quote(file_path)}"
+
+                html_parts.append(f'''
+                    <a href="{url}" class="list-item">
+                        <div class="item-header">
+                            <span class="item-icon">📄</span>
+                            <span class="item-title">{file_name}</span>
+                        </div>
+                        <div class="item-path">{folder_path}</div>
+                    </a>
+                ''')
+
+        elif list_type == 'bookmarks':
+            for bookmark in items:
+                file_name = self._escape_html(bookmark.file_name)
+                file_path = bookmark.file_path.replace('\\', '/')
+                folder_path = self._escape_html(bookmark.folder_path)
+                note = self._escape_html(bookmark.note) if bookmark.note else ''
+                url = f"app://open-file?file={quote(file_path)}"
+
+                note_html = f'<div class="item-preview">{note}</div>' if note else ''
+
+                html_parts.append(f'''
+                    <a href="{url}" class="list-item">
+                        <div class="item-header">
+                            <span class="item-icon">⭐</span>
+                            <span class="item-title">{file_name}</span>
+                        </div>
+                        {note_html}
+                        <div class="item-path">{folder_path}</div>
+                    </a>
+                ''')
+
+        return '\n'.join(html_parts)
+
+    def _generate_export_markdown(self, results: List[SearchResult], query: str) -> str:
+        """Generate Markdown format for search results export"""
+        lines = []
+        lines.append(f"# Search Results: \"{query}\"\n")
+        lines.append(f"**{len(results)} matches in {len(set(r.file_path for r in results))} files**\n")
+
+        current_file = None
+        for result in results:
+            if result.file_path != current_file:
+                current_file = result.file_path
+                lines.append(f"\n## {result.file_name}\n")
+                lines.append(f"*{result.file_path}*\n")
+
+            lines.append(f"### Line {result.line_number}")
+            lines.append(f"```")
+            lines.append(result.line_content)
+            lines.append(f"```\n")
+
+        return '\n'.join(lines)
 
     def _escape_for_js(self, content: str) -> str:
         """Escape content for JavaScript template literal"""
@@ -1393,12 +2170,67 @@ class MarkdownViewer(QMainWindow):
         if tab and tab.web_view:
             tab.web_view.page().runJavaScript("try { toggleOverview(); } catch(e) { console.error('Toggle error:', e); }")
 
+    def _toggle_bookmark_current_file(self):
+        """Toggle bookmark for currently open file"""
+        tab = self._get_current_tab()
+        if not tab or not tab.current_file:
+            return
+
+        file_path = tab.current_file
+
+        if self.bookmark_manager.is_bookmarked(file_path):
+            # Remove bookmark
+            if self.bookmark_manager.remove_bookmark(file_path):
+                self._update_bookmark_button(False)
+                # Show notification if in webview
+                if tab.web_view:
+                    tab.web_view.page().runJavaScript("try { showToast('Bookmark removed'); } catch(e) {}")
+        else:
+            # Add bookmark
+            if self.bookmark_manager.add_bookmark(file_path):
+                self._update_bookmark_button(True)
+                # Show notification if in webview
+                if tab.web_view:
+                    tab.web_view.page().runJavaScript("try { showToast('Bookmark added'); } catch(e) {}")
+
+    def _update_bookmark_button(self, is_bookmarked: bool):
+        """Update bookmark button state"""
+        if is_bookmarked:
+            self.bookmark_action.setText("★ Bookmarked")
+        else:
+            self.bookmark_action.setText("⭐ Bookmark")
+
     def _on_link_clicked(self, tab: FolderTab, url: str, open_in_new_tab: bool):
         """Handle link click in markdown content"""
         try:
             # Handle back button click
             if url == 'app://back':
                 self._navigate_back(tab)
+                return
+
+            # Handle search result click
+            if url.startswith('app://search-result?'):
+                self._handle_search_result_click(tab, url)
+                return
+
+            # Handle open file (from recent/bookmarks)
+            if url.startswith('app://open-file?'):
+                self._handle_open_file_click(tab, url)
+                return
+
+            # Handle export results
+            if url == 'app://export-results':
+                self._export_search_results(tab)
+                return
+
+            # Handle recent files
+            if url == 'app://recent-files':
+                self._show_recent_files(tab)
+                return
+
+            # Handle bookmarks
+            if url == 'app://bookmarks':
+                self._show_bookmarks(tab)
                 return
 
             # Handle external URLs - open in system browser
@@ -1459,7 +2291,7 @@ class MarkdownViewer(QMainWindow):
             else:
                 # Open in same tab - add current file to history for back navigation
                 if tab.current_file:
-                    tab.navigation_history.append(tab.current_file)
+                    tab.navigation_history.append(('file', tab.current_file))
                 tab.current_file = target_path
                 self._load_file(tab, target_path)
                 self._update_window_title()
@@ -1474,24 +2306,195 @@ class MarkdownViewer(QMainWindow):
             QMessageBox.warning(self, "Error", f"Failed to open link:\n{url}\n\nError: {e}")
 
     def _navigate_back(self, tab: FolderTab):
-        """Navigate back to previous file in history"""
+        """Navigate back to previous view in history"""
         if not tab.navigation_history:
             return
 
-        # Pop the previous file from history
-        previous_file = tab.navigation_history.pop()
+        # Pop the previous state from history
+        previous_state = tab.navigation_history.pop()
 
-        # Load the previous file (without adding to history)
-        if os.path.exists(previous_file):
-            tab.current_file = previous_file
-            self._load_file(tab, previous_file)
-            self._update_window_title()
+        # Handle different state types
+        if isinstance(previous_state, tuple):
+            state_type = previous_state[0]
 
-            # Update tree view selection if in same folder
-            file_index = tab.file_model.index(previous_file)
-            if file_index.isValid():
-                tab.tree_view.setCurrentIndex(file_index)
-                tab.tree_view.scrollTo(file_index)
+            if state_type == 'file':
+                # Previous state was a file
+                previous_file = previous_state[1]
+                if os.path.exists(previous_file):
+                    tab.current_file = previous_file
+                    self._load_file(tab, previous_file)
+                    self._update_window_title()
+
+                    # Update tree view selection
+                    file_index = tab.file_model.index(previous_file)
+                    if file_index.isValid():
+                        tab.tree_view.setCurrentIndex(file_index)
+                        tab.tree_view.scrollTo(file_index)
+
+            elif state_type == 'search':
+                # Previous state was search results
+                query = previous_state[1]
+                results = previous_state[2]
+                tab.current_search_query = query
+                tab.current_search_results = results
+                self._render_search_results(tab, results, query)
+
+        else:
+            # Legacy format: just a file path (string)
+            previous_file = previous_state
+            if os.path.exists(previous_file):
+                tab.current_file = previous_file
+                self._load_file(tab, previous_file)
+                self._update_window_title()
+
+                # Update tree view selection
+                file_index = tab.file_model.index(previous_file)
+                if file_index.isValid():
+                    tab.tree_view.setCurrentIndex(file_index)
+                    tab.tree_view.scrollTo(file_index)
+
+    def _handle_search_result_click(self, tab: FolderTab, url: str):
+        """Handle click on search result item"""
+        # Parse URL parameters
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+
+        file_path = params.get('file', [''])[0]
+        line_number = int(params.get('line', ['0'])[0])
+        keyword = params.get('keyword', [''])[0]
+
+        if not file_path or not os.path.exists(file_path):
+            QMessageBox.warning(self, "File Not Found", f"File not found:\n{file_path}")
+            return
+
+        # Save current search results to history
+        if tab.current_search_results:
+            tab.navigation_history.append(('search', tab.current_search_query, tab.current_search_results))
+
+        # Open file with highlighting
+        tab.current_file = file_path
+        self._load_file_with_highlight(tab, file_path, line_number, keyword)
+        self._update_window_title()
+
+        # Update tree view selection
+        file_index = tab.file_model.index(file_path)
+        if file_index.isValid():
+            tab.tree_view.setCurrentIndex(file_index)
+            tab.tree_view.scrollTo(file_index)
+
+    def _handle_open_file_click(self, tab: FolderTab, url: str):
+        """Handle click on file from recent files or bookmarks"""
+        # Parse URL parameters
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+
+        file_path = params.get('file', [''])[0]
+
+        if not file_path or not os.path.exists(file_path):
+            QMessageBox.warning(self, "File Not Found", f"File not found:\n{file_path}")
+            return
+
+        # Update bookmark access time if bookmarked
+        if self.bookmark_manager.is_bookmarked(file_path):
+            self.bookmark_manager.update_access_time(file_path)
+
+        # Open file
+        tab.current_file = file_path
+        self._load_file(tab, file_path)
+        self._update_window_title()
+
+        # Add to recent files
+        self.session_manager.add_recent_file(file_path)
+
+        # Update tree view selection
+        file_index = tab.file_model.index(file_path)
+        if file_index.isValid():
+            tab.tree_view.setCurrentIndex(file_index)
+            tab.tree_view.scrollTo(file_index)
+
+    def _load_file_with_highlight(self, tab: FolderTab, file_path: str, line_number: int, keyword: str):
+        """Load file and highlight keyword at specific line"""
+        # Store highlight info for rendering
+        tab._highlight_line = line_number
+        tab._highlight_keyword = keyword
+
+        # Load file normally
+        self._load_file(tab, file_path)
+
+    def _export_search_results(self, tab: FolderTab):
+        """Export search results to clipboard"""
+        if not tab.current_search_results:
+            return
+
+        # Generate Markdown
+        markdown = self._generate_export_markdown(tab.current_search_results, tab.current_search_query)
+
+        # Copy to clipboard
+        clipboard = QApplication.clipboard()
+        clipboard.setText(markdown)
+
+        # Show toast notification via JavaScript
+        tab.web_view.page().runJavaScript("showToast('Copied to clipboard!')")
+
+    def _show_recent_files(self, tab: FolderTab):
+        """Show recent files list"""
+        recent_files = self.session_manager.get_recent_files()
+
+        # Save current state to navigation history
+        if tab.current_file:
+            tab.navigation_history.append(('file', tab.current_file))
+        elif tab.current_search_results:
+            tab.navigation_history.append(('search', tab.current_search_query, tab.current_search_results))
+
+        # Generate list items HTML
+        list_items_html = self._generate_list_items_html(recent_files, 'recent')
+
+        # Replace placeholders
+        html = self.list_view_template
+        html = html.replace('$CSS_CONTENT$', self.css_content)
+        html = html.replace('$TITLE$', 'Recent Files')
+        html = html.replace('$STATS$', f'{len(recent_files)} file{"s" if len(recent_files) != 1 else ""}')
+        html = html.replace('$LIST_ITEMS$', list_items_html)
+        html = html.replace('$EXPORT_BUTTON_STYLE$', 'display: none;')
+        html = html.replace('$SEARCH_QUERY$', '')
+
+        # Set HTML
+        if tab.current_folder:
+            base_url = QUrl.fromLocalFile(tab.current_folder + '/')
+        else:
+            base_url = QUrl()
+        tab.web_view.setHtml(html, base_url)
+        self._update_window_title()
+
+    def _show_bookmarks(self, tab: FolderTab):
+        """Show bookmarks list"""
+        bookmarks = self.bookmark_manager.get_all_bookmarks()
+
+        # Save current state to navigation history
+        if tab.current_file:
+            tab.navigation_history.append(('file', tab.current_file))
+        elif tab.current_search_results:
+            tab.navigation_history.append(('search', tab.current_search_query, tab.current_search_results))
+
+        # Generate list items HTML
+        list_items_html = self._generate_list_items_html(bookmarks, 'bookmarks')
+
+        # Replace placeholders
+        html = self.list_view_template
+        html = html.replace('$CSS_CONTENT$', self.css_content)
+        html = html.replace('$TITLE$', 'Bookmarks')
+        html = html.replace('$STATS$', f'{len(bookmarks)} bookmark{"s" if len(bookmarks) != 1 else ""}')
+        html = html.replace('$LIST_ITEMS$', list_items_html)
+        html = html.replace('$EXPORT_BUTTON_STYLE$', 'display: none;')
+        html = html.replace('$SEARCH_QUERY$', '')
+
+        # Set HTML
+        if tab.current_folder:
+            base_url = QUrl.fromLocalFile(tab.current_folder + '/')
+        else:
+            base_url = QUrl()
+        tab.web_view.setHtml(html, base_url)
+        self._update_window_title()
 
     def _show_link_context_menu(self, tab: FolderTab, pos):
         """Show context menu for right-click on links"""
