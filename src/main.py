@@ -1093,6 +1093,7 @@ class FolderTab(QWidget):
             file_info_section.add_layout(row)
 
         inspector_layout.addWidget(file_info_section)
+        file_info_section.toggle()  # Start collapsed
 
         # Stats Section (collapsible)
         stats_section = CollapsibleSection("Stats")
@@ -1110,6 +1111,7 @@ class FolderTab(QWidget):
             self.stats_labels[key] = value_label
 
         inspector_layout.addWidget(stats_section)
+        stats_section.toggle()  # Start collapsed
 
         # Quick Actions Section (always visible)
         actions_header = QLabel("Quick Actions")
