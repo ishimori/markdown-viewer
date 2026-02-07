@@ -1103,6 +1103,12 @@ class FolderTab(QWidget):
         self.bookmark_btn = None
         self.scope_all_btn = None
         self.scope_current_btn = None
+        # Find-in-page components
+        self.find_prev_btn = None
+        self.find_next_btn = None
+        self.find_count_label = None
+        self.find_in_page_active = False
+        self.find_in_page_query = ""
         self.current_search_query = ""
         self.current_search_results = []
         self.current_search_scope = 'all'
@@ -1180,7 +1186,23 @@ class FolderTab(QWidget):
         self.bookmark_btn.setToolTip("Bookmarks")
         self.bookmark_btn.setMaximumWidth(40)
 
+        # Find-in-page navigation (hidden by default)
+        self.find_prev_btn = QPushButton("◀")
+        self.find_prev_btn.setToolTip("前のマッチ")
+        self.find_prev_btn.setMaximumWidth(32)
+        self.find_prev_btn.setVisible(False)
+        self.find_count_label = QLabel("")
+        self.find_count_label.setStyleSheet("color: #ccc; font-size: 12px; padding: 0 2px;")
+        self.find_count_label.setVisible(False)
+        self.find_next_btn = QPushButton("▶")
+        self.find_next_btn.setToolTip("次のマッチ")
+        self.find_next_btn.setMaximumWidth(32)
+        self.find_next_btn.setVisible(False)
+
         buttons_layout.addWidget(self.search_button)
+        buttons_layout.addWidget(self.find_prev_btn)
+        buttons_layout.addWidget(self.find_count_label)
+        buttons_layout.addWidget(self.find_next_btn)
         buttons_layout.addWidget(self.recent_btn)
         buttons_layout.addWidget(self.bookmark_btn)
         buttons_layout.addStretch()
@@ -1535,6 +1557,11 @@ class MarkdownViewer(QMainWindow):
         self.setWindowTitle(self.app_title)
         self.setGeometry(100, 100, 1400, 900)
 
+        # Set window icon
+        icon_path = get_resource_path("icon.ico")
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
+
         self.css_content = ""
         self.highlight_css = ""
         self.marked_js_path = ""
@@ -1645,16 +1672,10 @@ class MarkdownViewer(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        # New tab action
-        new_tab_action = QAction("➕ New Tab", self)
-        new_tab_action.setShortcut("Ctrl+T")
-        new_tab_action.triggered.connect(lambda: self._add_new_tab())
-        toolbar.addAction(new_tab_action)
-
         # Open folder action
         open_folder_action = QAction("📂 Open Folder", self)
         open_folder_action.setShortcut("Ctrl+O")
-        open_folder_action.triggered.connect(self._open_folder_in_current_tab)
+        open_folder_action.triggered.connect(self._open_folder)
         toolbar.addAction(open_folder_action)
 
         # Refresh action
@@ -1666,7 +1687,7 @@ class MarkdownViewer(QMainWindow):
         toolbar.addSeparator()
 
         # Toggle sidebar action
-        toggle_sidebar_action = QAction("📂 Sidebar", self)
+        toggle_sidebar_action = QAction("☰ Sidebar", self)
         toggle_sidebar_action.setShortcut("Ctrl+Shift+L")
         toggle_sidebar_action.triggered.connect(self._toggle_sidebar)
         toolbar.addAction(toggle_sidebar_action)
@@ -1748,12 +1769,21 @@ class MarkdownViewer(QMainWindow):
     def _on_scope_toggled(self, tab: FolderTab, current_file_checked: bool):
         """Handle search scope toggle change"""
         if current_file_checked:
-            tab.search_input.setPlaceholderText("Search in current file...")
+            tab.search_input.setPlaceholderText("Search in current file (single keyword)...")
             tab.filename_check.setEnabled(False)
             tab.filename_check.setChecked(False)
+            tab.regex_check.setEnabled(False)
+            tab.regex_check.setChecked(False)
         else:
             tab.search_input.setPlaceholderText("Search in files...")
             tab.filename_check.setEnabled(True)
+            tab.regex_check.setEnabled(True)
+            self._clear_find_in_page(tab)
+
+    def _on_search_text_changed(self, tab: FolderTab, text: str):
+        """Clear find-in-page when search input is emptied"""
+        if not text.strip() and tab.find_in_page_active:
+            self._clear_find_in_page(tab)
 
     def _update_scope_toggle_state(self, tab: FolderTab):
         """Update scope toggle button enabled state based on current file"""
@@ -1779,9 +1809,16 @@ class MarkdownViewer(QMainWindow):
                     tab.web_view.page().runJavaScript("if(typeof showToast !== 'undefined') showToast('Bookmark added');")
 
     def _handle_escape_key(self):
-        """Handle ESC key - go back if navigation history exists"""
+        """Handle ESC key - clear find-in-page or go back"""
         tab = self._get_current_tab()
-        if tab and tab.navigation_history:
+        if not tab:
+            return
+        # First priority: clear find-in-page if active
+        if tab.find_in_page_active:
+            self._clear_find_in_page(tab)
+            return
+        # Otherwise: go back if navigation history exists
+        if tab.navigation_history:
             self._navigate_back(tab)
 
     def _show_help(self):
@@ -1841,7 +1878,7 @@ class MarkdownViewer(QMainWindow):
     def _add_welcome_tab(self):
         """Add initial welcome tab"""
         tab = self._add_new_tab()
-        self._render_markdown(tab, "# Welcome to Markdown Viewer\n\nOpen a folder to get started.\n\n## Keyboard Shortcuts\n\n| Shortcut | Action |\n|----------|--------|\n| Ctrl+O | Open Folder |\n| Ctrl+T | New Tab |\n| Ctrl+W | Close Tab |\n| Ctrl+Tab | Next Tab |\n| Ctrl+Shift+Tab | Previous Tab |\n| Ctrl+F | Search |\n| Ctrl+B | Bookmark |\n| Ctrl+H | Recent Files |\n| Ctrl+Shift+L | Toggle Sidebar |\n| Ctrl+Shift+O | Toggle Outline |\n| Ctrl+Shift+I | Toggle Stats |\n| Ctrl++ | Zoom In |\n| Ctrl+- | Zoom Out |\n| Ctrl+0 | Zoom Reset |\n| F5 | Refresh |\n| F1 | Help |\n| ESC | Go Back |")
+        self._render_markdown(tab, "# Welcome to Markdown Viewer\n\nOpen a folder to get started.\n\n## Keyboard Shortcuts\n\n| Shortcut | Action |\n|----------|--------|\n| Ctrl+O | Open Folder |\n| Ctrl+W | Close Tab |\n| Ctrl+Tab | Next Tab |\n| Ctrl+Shift+Tab | Previous Tab |\n| Ctrl+F | Search |\n| Ctrl+B | Bookmark |\n| Ctrl+H | Recent Files |\n| Ctrl+Shift+L | Toggle Sidebar |\n| Ctrl+Shift+O | Toggle Outline |\n| Ctrl+Shift+I | Toggle Stats |\n| Ctrl++ | Zoom In |\n| Ctrl+- | Zoom Out |\n| Ctrl+0 | Zoom Reset |\n| F5 | Refresh |\n| F1 | Help |\n| ESC | Go Back |")
 
     def _add_new_tab(self, folder_path: str = None) -> FolderTab:
         """Create and add a new folder tab"""
@@ -1866,11 +1903,16 @@ class MarkdownViewer(QMainWindow):
         # Connect search panel buttons
         tab.search_button.clicked.connect(lambda checked, t=tab: self._perform_search(t))
         tab.search_input.returnPressed.connect(lambda t=tab: self._perform_search(t))
+        tab.search_input.textChanged.connect(lambda text, t=tab: self._on_search_text_changed(t, text))
         tab.recent_btn.clicked.connect(lambda checked, t=tab: self._show_recent_files(t))
         tab.bookmark_btn.clicked.connect(lambda checked, t=tab: self._show_bookmarks(t))
 
         # Connect scope toggle
         tab.scope_current_btn.toggled.connect(lambda checked, t=tab: self._on_scope_toggled(t, checked))
+
+        # Connect find-in-page navigation
+        tab.find_prev_btn.clicked.connect(lambda checked, t=tab: self._find_in_page_prev(t))
+        tab.find_next_btn.clicked.connect(lambda checked, t=tab: self._find_in_page_next(t))
 
         if folder_path:
             tab.set_folder(folder_path)
@@ -1881,17 +1923,21 @@ class MarkdownViewer(QMainWindow):
         self.tab_widget.setCurrentWidget(tab)
         return tab
 
-    def _open_folder_in_current_tab(self):
-        """Open folder in current tab"""
+    def _open_folder(self):
+        """Open folder - reuses empty tab or creates new tab"""
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder:
             tab = self._get_current_tab()
-            if tab:
+            if tab and tab.current_folder is None:
+                # Reuse empty/welcome tab
                 tab.current_file = None
                 self._update_scope_toggle_state(tab)
                 tab.set_folder(folder)
                 self._update_tab_title(tab)
-                self._update_window_title()
+            else:
+                # Create new tab with the selected folder
+                self._add_new_tab(folder)
+            self._update_window_title()
 
     def _close_tab(self, index: int):
         """Close tab at given index"""
@@ -2228,6 +2274,7 @@ class MarkdownViewer(QMainWindow):
 
     def _load_file(self, tab: FolderTab, file_path: str):
         """Load and render file based on type"""
+        self._clear_find_in_page(tab)
         self._update_file_watch()
         file_type = detect_file_type(file_path)
         try:
@@ -2268,6 +2315,8 @@ class MarkdownViewer(QMainWindow):
         """Execute search and display results"""
         query = tab.search_input.text().strip()
         if not query:
+            if tab.find_in_page_active:
+                self._clear_find_in_page(tab)
             return
 
         # Determine search scope
@@ -2280,16 +2329,29 @@ class MarkdownViewer(QMainWindow):
                 tab.scope_all_btn.setChecked(True)
                 search_current_file = False
 
-        if not search_current_file and not tab.current_folder:
+        # Find-in-page mode for "this file" scope
+        if search_current_file:
+            case_sensitive = tab.case_sensitive_check.isChecked()
+            # If same query is active, just advance to next match
+            if tab.find_in_page_active and tab.find_in_page_query == query:
+                self._find_in_page_next(tab)
+                return
+            self._find_in_page(tab, query, case_sensitive)
+            # Add to search history
+            self.session_manager.add_search_history(
+                query, case_sensitive, False, False, 'AND', 'current'
+            )
+            return
+
+        if not tab.current_folder:
             QMessageBox.warning(self, "No Folder", "Please open a folder first.")
             return
 
         # Get search options
         case_sensitive = tab.case_sensitive_check.isChecked()
         use_regex = tab.regex_check.isChecked()
-        search_filenames = tab.filename_check.isChecked() if not search_current_file else False
+        search_filenames = tab.filename_check.isChecked()
         operator = 'AND'  # Default operator
-        scope = 'current' if search_current_file else 'all'
 
         # Disable search button while searching
         tab.search_button.setEnabled(False)
@@ -2297,33 +2359,24 @@ class MarkdownViewer(QMainWindow):
 
         try:
             # Perform search
-            if search_current_file:
-                results = self.search_engine.search_single_file(
-                    tab.current_file,
-                    query,
-                    case_sensitive,
-                    use_regex,
-                    operator
-                )
-            else:
-                results = self.search_engine.search(
-                    tab.current_folder,
-                    tab.file_model,
-                    query,
-                    case_sensitive,
-                    use_regex,
-                    search_filenames,
-                    operator
-                )
+            results = self.search_engine.search(
+                tab.current_folder,
+                tab.file_model,
+                query,
+                case_sensitive,
+                use_regex,
+                search_filenames,
+                operator
+            )
 
             # Store results
             tab.current_search_query = query
             tab.current_search_results = results
-            tab.current_search_scope = scope
+            tab.current_search_scope = 'all'
 
             # Add to search history
             self.session_manager.add_search_history(
-                query, case_sensitive, use_regex, search_filenames, operator, scope
+                query, case_sensitive, use_regex, search_filenames, operator, 'all'
             )
 
             # Save current state to navigation history
@@ -2333,7 +2386,7 @@ class MarkdownViewer(QMainWindow):
                 tab.navigation_history.append(('folder', tab.current_folder))
 
             # Render results
-            self._render_search_results(tab, results, query, scope)
+            self._render_search_results(tab, results, query, 'all')
 
         except Exception as e:
             QMessageBox.critical(self, "Search Error", f"Failed to search:\n{e}")
@@ -2341,6 +2394,80 @@ class MarkdownViewer(QMainWindow):
             # Re-enable search button
             tab.search_button.setEnabled(True)
             tab.search_button.setText("🔍")
+
+    def _find_in_page(self, tab: FolderTab, query: str, case_sensitive: bool):
+        """Execute find-in-page using QWebEnginePage.findText()"""
+        tab.find_in_page_query = query
+        tab.find_in_page_active = True
+        tab.current_search_query = query
+        tab.current_search_scope = 'current'
+
+        # Build find flags
+        flags = QWebEnginePage.FindFlag(0)
+        if case_sensitive:
+            flags |= QWebEnginePage.FindFlag.FindCaseSensitively
+
+        # Show navigation UI
+        tab.find_prev_btn.setVisible(True)
+        tab.find_count_label.setVisible(True)
+        tab.find_next_btn.setVisible(True)
+        tab.find_count_label.setText("...")
+
+        # Execute find
+        tab.web_view.page().findText(
+            query, flags,
+            lambda result, t=tab: self._find_in_page_callback(t, result)
+        )
+
+    def _find_in_page_next(self, tab: FolderTab):
+        """Navigate to next find-in-page match"""
+        if not tab.find_in_page_active or not tab.find_in_page_query:
+            return
+        flags = QWebEnginePage.FindFlag(0)
+        if tab.case_sensitive_check.isChecked():
+            flags |= QWebEnginePage.FindFlag.FindCaseSensitively
+        tab.web_view.page().findText(
+            tab.find_in_page_query, flags,
+            lambda result, t=tab: self._find_in_page_callback(t, result)
+        )
+
+    def _find_in_page_prev(self, tab: FolderTab):
+        """Navigate to previous find-in-page match"""
+        if not tab.find_in_page_active or not tab.find_in_page_query:
+            return
+        flags = QWebEnginePage.FindFlag.FindBackward
+        if tab.case_sensitive_check.isChecked():
+            flags |= QWebEnginePage.FindFlag.FindCaseSensitively
+        tab.web_view.page().findText(
+            tab.find_in_page_query, flags,
+            lambda result, t=tab: self._find_in_page_callback(t, result)
+        )
+
+    def _find_in_page_callback(self, tab: FolderTab, result):
+        """Update find-in-page counter from findText result"""
+        # Guard against callback arriving after tab is destroyed
+        try:
+            if not tab.find_in_page_active:
+                return
+            total = result.numberOfMatches()
+            active = result.activeMatch()
+            if total > 0:
+                tab.find_count_label.setText(f"{active}/{total}")
+            else:
+                tab.find_count_label.setText("0")
+        except (RuntimeError, AttributeError):
+            # Tab widget already destroyed or Qt version lacks these methods
+            pass
+
+    def _clear_find_in_page(self, tab: FolderTab):
+        """Clear find-in-page highlighting and hide navigation UI"""
+        if tab.find_in_page_active:
+            tab.web_view.page().findText("")
+        tab.find_in_page_active = False
+        tab.find_in_page_query = ""
+        tab.find_prev_btn.setVisible(False)
+        tab.find_count_label.setVisible(False)
+        tab.find_next_btn.setVisible(False)
 
     def _render_search_results(self, tab: FolderTab, results: List[SearchResult],
                                query: str, scope: str = 'all'):

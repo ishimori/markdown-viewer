@@ -6,8 +6,10 @@ uv run pyinstaller ^
     --onefile ^
     --windowed ^
     --name markdown-viewer ^
+    --icon "src/icon.ico" ^
     --add-data "src/templates;templates" ^
     --add-data "src/style.css;." ^
+    --add-data "src/icon.ico;." ^
     --add-data "HELP.md;." ^
     --exclude-module tkinter ^
     --exclude-module matplotlib ^

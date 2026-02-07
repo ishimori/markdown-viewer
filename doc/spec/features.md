@@ -142,7 +142,6 @@ mermaid.initialize({
 
 | 操作 | 方法 | ショートカット |
 |------|------|---------------|
-| 新規タブ | ツールバーボタン / ショートカット | Ctrl+T |
 | タブを閉じる | タブの×ボタン / ショートカット | Ctrl+W |
 | 次のタブ | ショートカット | Ctrl+Tab |
 | 前のタブ | ショートカット | Ctrl+Shift+Tab |
@@ -274,9 +273,8 @@ Windows: C:\Users\{username}\.markdown-viewer\session.json
 
 | ショートカット | 機能 | 関連メソッド |
 |---------------|------|-------------|
-| Ctrl+T | 新しいタブを作成 | `_add_new_tab()` |
 | Ctrl+W | 現在のタブを閉じる | `_close_current_tab()` |
-| Ctrl+O | フォルダを開く | `_open_folder_in_current_tab()` |
+| Ctrl+O | フォルダを開く（新しいタブで） | `_open_folder()` |
 | Ctrl+Tab | 次のタブへ | `_next_tab()` |
 | Ctrl+Shift+Tab | 前のタブへ | `_prev_tab()` |
 | Ctrl+Shift+O | アウトライン切り替え | `_toggle_overview()` |
@@ -288,7 +286,6 @@ Windows: C:\Users\{username}\.markdown-viewer\session.json
 ### 実装
 
 ```python
-QShortcut(QKeySequence("Ctrl+T"), self, self._add_new_tab)
 QShortcut(QKeySequence("Ctrl+W"), self, self._close_current_tab)
 # ...
 ```
@@ -419,7 +416,6 @@ Markdown内のリンクをクリックした際の処理。リンクの種類に
 | Key | Action |
 |-----|--------|
 | Ctrl+O | Open Folder |
-| Ctrl+T | New Tab |
 | Ctrl+W | Close Tab |
 | Ctrl+Tab | Next Tab |
 | Ctrl+Shift+Tab | Previous Tab |
@@ -735,7 +731,7 @@ F5キーでファイルを再読み込みした際、再読み込み前のスク
 |------|------|
 | ファイル未選択時（`tab.current_file is None`） | 「このファイル」ボタンを無効化（disabled） |
 | 「このファイル」選択中にファイルを閉じた場合 | 自動的に「全ファイル」に切り替え |
-| 「このファイル」スコープ選択時 | 「📄 ファイル名検索」チェックボックスを無効化（disabled） |
+| 「このファイル」スコープ選択時 | 「📄 ファイル名検索」「.* 正規表現」チェックボックスを無効化（disabled） |
 
 #### プレースホルダーテキスト
 
@@ -746,17 +742,42 @@ F5キーでファイルを再読み込みした際、再読み込み前のスク
 
 #### 検索実行
 
-| スコープ | 使用メソッド |
-|---------|-------------|
-| 全ファイル | `SearchEngine.search()`（既存動作） |
-| このファイル | `SearchEngine.search_single_file()` |
+| スコープ | 使用メソッド | 動作 |
+|---------|-------------|------|
+| 全ファイル | `SearchEngine.search()` | 検索結果リストビューに遷移（既存動作） |
+| このファイル | `QWebEnginePage.findText()` | ファイルを開いたままページ内検索（Find-in-Page） |
 
-#### 検索結果ヘッダー
+#### 「このファイル」スコープ: Find-in-Page 動作
+
+「このファイル」スコープでは、検索結果画面に遷移せず、`QWebEnginePage.findText()` を使用したブラウザ風ページ内検索を行う。
+
+| 項目 | 説明 |
+|------|------|
+| ハイライト | WebEngine 組み込みのマッチハイライト（全マッチ箇所が黄色背景） |
+| ナビゲーション | ◀ ▶ ボタンで前後のマッチへ移動 |
+| カウンター | `N/M` 形式でアクティブマッチ番号/総マッチ数を表示 |
+| Enter キー | 次のマッチへ移動（同じクエリの場合） |
+| 大文字小文字区別 | `FindCaseSensitively` フラグで対応 |
+| 正規表現 | 非対応（`findText()` の制約）→ チェックボックスを無効化 |
+| クリアタイミング | スコープ切替時、別ファイル読み込み時 |
+
+##### ナビゲーション UI
+
+検索パネルのボタン行に以下を追加（Find-in-Page アクティブ時のみ表示）:
+
+```
+[🔍] [◀] [3/15] [▶]  [⏱] [⭐]
+```
+
+- `find_prev_btn`: QPushButton("◀") - 前のマッチへ（`FindBackward` フラグ使用）
+- `find_count_label`: QLabel - `active/total` 形式のカウンター
+- `find_next_btn`: QPushButton("▶") - 次のマッチへ
+
+#### 「全ファイル」スコープ: 検索結果ヘッダー
 
 | スコープ | ヘッダー表示例 |
 |---------|--------------|
 | 全ファイル | `15 matches in 3 files`（既存動作） |
-| このファイル | `N matches in "filename.md"` |
 
 #### セッション永続化
 
@@ -904,7 +925,12 @@ Another matching line
 
 | メソッド | 説明 |
 |---------|------|
-| `_perform_search(tab)` | 検索実行＆結果レンダリング |
+| `_perform_search(tab)` | 検索実行（スコープに応じて分岐） |
+| `_find_in_page(tab, query, case_sensitive)` | Find-in-Page実行（`findText()`使用） |
+| `_find_in_page_next(tab)` | 次のマッチへ移動 |
+| `_find_in_page_prev(tab)` | 前のマッチへ移動 |
+| `_find_in_page_callback(tab, result)` | マッチカウンター更新 |
+| `_clear_find_in_page(tab)` | Find-in-Pageクリア＆UI非表示 |
 | `_render_search_results(tab, results, query)` | リストビューHTML生成 |
 | `_generate_list_items_html(items, type, keyword)` | リストアイテムHTML生成 |
 | `_generate_export_markdown(results, query)` | エクスポート用Markdown生成 |

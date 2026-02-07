@@ -753,8 +753,7 @@ QSplitter (horizontal)
 
 | ボタン | アクション |
 |--------|-----------|
-| Open Folder | `_open_folder_in_current_tab()` |
-| New Tab | `_add_new_tab()` |
+| Open Folder | `_open_folder()` |
 | Refresh | `_refresh_current_tab()` |
 | Toggle Outline | `_toggle_overview()` |
 | パスラベル | 現在のファイルのフルパスを右寄せで表示 |
@@ -765,9 +764,8 @@ QSplitter (horizontal)
 
 | キー | メソッド |
 |------|---------|
-| Ctrl+T | `_add_new_tab()` |
 | Ctrl+W | `_close_current_tab()` |
-| Ctrl+O | `_open_folder_in_current_tab()` |
+| Ctrl+O | `_open_folder()` |
 | Ctrl+Tab | `_next_tab()` |
 | Ctrl+Shift+Tab | `_prev_tab()` |
 | Ctrl+Shift+O | `_toggle_overview()` |
@@ -790,9 +788,9 @@ QSplitter (horizontal)
 
 現在のタブを閉じる。最後の1つは閉じない。
 
-#### `_open_folder_in_current_tab(self) -> None`
+#### `_open_folder(self) -> None`
 
-フォルダ選択ダイアログを表示し、選択されたフォルダを現在のタブに設定。
+フォルダ選択ダイアログを表示。現在のタブにフォルダが未設定の場合は再利用し、それ以外は新しいタブを作成して設定。
 
 #### `_refresh_current_tab(self) -> None`
 
