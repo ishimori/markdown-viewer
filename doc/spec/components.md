@@ -29,11 +29,60 @@ Qt ウィジェット用のスタイルシート定数。SSOT（Single Source of
 | `SearchEngine` | - | 全文検索エンジン |
 | `BookmarkEntry` | dataclass | ブックマークエントリ |
 | `BookmarkManager` | - | ブックマーク管理 |
+| `CollapsibleSection` | QWidget | 折りたたみ可能なセクション（サマリー表示付き） |
 | `FileTypeIconModel` | QFileSystemModel | ファイルタイプアイコン表示 |
 | `MarkdownWebPage` | QWebEnginePage | リンククリック処理 |
 | `SessionManager` | - | セッション状態の永続化 |
 | `FolderTab` | QWidget | タブ単位のUI・ロジック |
 | `MarkdownViewer` | QMainWindow | アプリケーション全体の制御 |
+
+---
+
+## CollapsibleSection
+
+### 概要
+
+折りたたみ可能なセクションウィジェット。ヘッダーボタンとコンテンツ領域で構成。折りたたみ時にサマリーテキストをヘッダーに表示可能。
+
+### 属性
+
+| 属性名 | 型 | 説明 |
+|--------|---|------|
+| is_collapsed | bool | 折りたたみ状態 |
+| toggle_button | QPushButton | ヘッダーボタン（タイトル + 矢印） |
+| content_widget | QWidget | コンテンツコンテナ |
+| _title | str | セクションタイトル |
+| _summary | str | 折りたたみ時に表示するサマリーテキスト |
+
+### メソッド
+
+#### `toggle(self) -> None`
+
+折りたたみ状態を切り替え、ヘッダーを更新。
+
+#### `set_summary(self, text: str) -> None`
+
+折りたたみ時にヘッダーに表示するサマリーテキストを設定。折りたたみ中の場合は即座にヘッダーを更新。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| text | str | サマリーテキスト（空文字でクリア） |
+
+#### `add_widget(self, widget: QWidget) -> None`
+
+コンテンツ領域にウィジェットを追加。
+
+#### `add_layout(self, layout: QLayout) -> None`
+
+コンテンツ領域にレイアウトを追加。
+
+### ヘッダー表示形式
+
+| 状態 | 表示例 |
+|------|--------|
+| 展開中 | `Stats  ▼` |
+| 折りたたみ（サマリーあり） | `Stats: 1,234 lines  ▶` |
+| 折りたたみ（サマリーなし） | `Stats  ▶` |
 
 ---
 
@@ -594,6 +643,8 @@ SESSION_FILE = SESSION_DIR / "session.json"
 | web_view | QWebEngineView | コンテンツレンダリング領域 |
 | web_page | MarkdownWebPage | リンクインターセプト用ページ |
 | stats_labels | dict | 統計情報ラベル群 |
+| file_info_section | CollapsibleSection | File Info 折りたたみセクション |
+| stats_section | CollapsibleSection | Stats 折りたたみセクション |
 | filter_combo | QComboBox | ファイルフィルタードロップダウン |
 | parent_btn | QPushButton | 親ディレクトリ移動ボタン（⬆） |
 | navigation_history | list | ナビゲーション履歴スタック（tuple形式） |
@@ -628,9 +679,14 @@ UIコンポーネントを初期化・配置。
 ```
 QSplitter (horizontal)
 ├── left_panel (QWidget, 幅250px)
+│   ├── filter_combo (QComboBox)
+│   ├── search_panel
+│   ├── parent_btn (QPushButton "⬆ ..")
 │   ├── tree_view (QTreeView + FileTypeIconModel)
-│   └── stats_panel (QWidget)
-│       └── Lines / Chars / Words / Read / Size
+│   └── stats_panel (Inspector)
+│       ├── File Info (CollapsibleSection) - 折りたたみ時: 更新日時
+│       ├── Stats (CollapsibleSection) - 折りたたみ時: 行数
+│       └── Quick Actions
 └── web_view (QWebEngineView + MarkdownWebPage)
 ```
 

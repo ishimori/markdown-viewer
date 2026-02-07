@@ -1039,6 +1039,8 @@ class CollapsibleSection(QWidget):
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
         self.is_collapsed = False
+        self._title = title
+        self._summary = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1074,10 +1076,21 @@ class CollapsibleSection(QWidget):
         """Toggle collapsed state"""
         self.is_collapsed = not self.is_collapsed
         self.content_widget.setVisible(not self.is_collapsed)
-        # Update arrow direction
-        title = self.toggle_button.text().rsplit('  ', 1)[0]
+        self._update_header()
+
+    def set_summary(self, text: str):
+        """Set summary text shown in header when collapsed"""
+        self._summary = text
+        if self.is_collapsed:
+            self._update_header()
+
+    def _update_header(self):
+        """Update header button text with arrow and optional summary"""
         arrow = "▶" if self.is_collapsed else "▼"
-        self.toggle_button.setText(f"{title}  {arrow}")
+        if self.is_collapsed and self._summary:
+            self.toggle_button.setText(f"{self._title}: {self._summary}  {arrow}")
+        else:
+            self.toggle_button.setText(f"{self._title}  {arrow}")
 
     def add_widget(self, widget):
         """Add widget to content area"""
@@ -1109,6 +1122,8 @@ class FolderTab(QWidget):
         self.stats_panel = None
         self.stats_labels = {}
         self.file_info_labels = {}  # File metadata labels
+        self.file_info_section = None
+        self.stats_section = None
         self.quick_action_buttons = []  # Quick action button references
         self.filter_combo = None
         self.parent_btn = None
@@ -1251,7 +1266,8 @@ class FolderTab(QWidget):
         inspector_layout.setSpacing(2)
 
         # File Info Section (collapsible)
-        file_info_section = CollapsibleSection("File Info")
+        self.file_info_section = CollapsibleSection("File Info")
+        file_info_section = self.file_info_section
         self.file_info_labels['modified'] = QLabel("-")
         self.file_info_labels['encoding'] = QLabel("-")
         self.file_info_labels['readonly'] = QLabel("-")
@@ -1276,7 +1292,8 @@ class FolderTab(QWidget):
         file_info_section.toggle()  # Start collapsed
 
         # Stats Section (collapsible)
-        stats_section = CollapsibleSection("Stats")
+        self.stats_section = CollapsibleSection("Stats")
+        stats_section = self.stats_section
         for key, label in [("lines", "Lines"), ("chars", "Chars"), ("words", "Words"), ("time", "Read"), ("size", "Size")]:
             row = QHBoxLayout()
             row.setSpacing(4)
@@ -1432,7 +1449,7 @@ class FolderTab(QWidget):
         left_layout.addWidget(search_panel)
 
         # Parent folder button (at top of tree area, like ".." entry)
-        self.parent_btn = QPushButton("📁 ..")
+        self.parent_btn = QPushButton("⬆ ..")
         self.parent_btn.setToolTip("Go to parent folder")
         self.parent_btn.setStyleSheet(QT_STYLES['parent_btn'])
         self.parent_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1506,6 +1523,7 @@ class FolderTab(QWidget):
         self.stats_labels["words"].setText(f"{words:,}")
         self.stats_labels["time"].setText(f"~{read_time} min")
         self.stats_labels["size"].setText(f"{size_kb:.1f} KB")
+        self.stats_section.set_summary(f"{lines:,} lines")
 
     def clear_file_info(self):
         """Clear file info panel, stats, and disable quick actions"""
@@ -1513,9 +1531,11 @@ class FolderTab(QWidget):
         self.file_info_labels['modified'].setText("-")
         self.file_info_labels['encoding'].setText("-")
         self.file_info_labels['readonly'].setText("-")
+        self.file_info_section.set_summary("")
         # Clear stats
         for key in ['lines', 'chars', 'words', 'time', 'size']:
             self.stats_labels[key].setText("-")
+        self.stats_section.set_summary("")
         # Disable quick action buttons
         for btn in self.quick_action_buttons:
             btn.setEnabled(False)
@@ -1533,6 +1553,7 @@ class FolderTab(QWidget):
             mtime = os.path.getmtime(self.current_file)
             mod_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
             self.file_info_labels['modified'].setText(mod_date)
+            self.file_info_section.set_summary(mod_date)
 
             # Detect encoding (assume UTF-8 for now)
             self.file_info_labels['encoding'].setText("UTF-8")
