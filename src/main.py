@@ -652,12 +652,10 @@ QT_STYLES = {
             background: #bbdefb;
         }
     """,
-    'path_label': """
-        QLabel {
-            color: #90a4ae;
-            font-family: 'Meiryo UI', 'Meiryo', sans-serif;
-            font-size: 11px;
-            padding: 0 8px;
+    'history_container': """
+        QWidget {
+            background: #f5f8ff;
+            border-bottom: 1px solid #e0e0e0;
         }
     """,
     'history_bar': """
@@ -1612,7 +1610,34 @@ class MarkdownViewer(QMainWindow):
         # Style the tab bar
         self.tab_widget.setStyleSheet(QT_STYLES['tab_widget'])
 
-        self.setCentralWidget(self.tab_widget)
+        # History bar (recent files links + spacer + path label)
+        self.history_container = QWidget()
+        self.history_container.setStyleSheet(QT_STYLES['history_container'])
+        self.history_container.setFixedHeight(26)
+        # Prevent history bar buttons from inflating window minimum width
+        size_policy = self.history_container.sizePolicy()
+        size_policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        self.history_container.setSizePolicy(size_policy)
+        history_layout = QHBoxLayout(self.history_container)
+        history_layout.setContentsMargins(8, 0, 8, 0)
+        history_layout.setSpacing(0)
+
+        # Recent files history area
+        self.history_bar = QWidget()
+        self.history_bar_layout = QHBoxLayout(self.history_bar)
+        self.history_bar_layout.setContentsMargins(0, 0, 0, 0)
+        self.history_bar_layout.setSpacing(0)
+        history_layout.addWidget(self.history_bar)
+
+        # Central container: history bar + tab widget
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self.history_container)
+        central_layout.addWidget(self.tab_widget)
+
+        self.setCentralWidget(central)
 
     def _setup_toolbar(self):
         """Setup toolbar with actions"""
@@ -1666,30 +1691,7 @@ class MarkdownViewer(QMainWindow):
         help_action.triggered.connect(self._show_help)
         toolbar.addAction(help_action)
 
-        # History bar container (recent files links + spacer + path label)
-        history_container = QWidget()
-        history_layout = QHBoxLayout(history_container)
-        history_layout.setContentsMargins(4, 0, 0, 0)
-        history_layout.setSpacing(0)
-
-        # Recent files history area
-        self.history_bar = QWidget()
-        self.history_bar_layout = QHBoxLayout(self.history_bar)
-        self.history_bar_layout.setContentsMargins(0, 0, 0, 0)
-        self.history_bar_layout.setSpacing(0)
-        history_layout.addWidget(self.history_bar)
-
-        # Spacer to push path label to the right
-        history_layout.addStretch(1)
-
-        # Path label for current file
-        self.path_label = QLabel("")
-        self.path_label.setStyleSheet(QT_STYLES['path_label'])
-        self.path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        history_layout.addWidget(self.path_label)
-
-        history_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(history_container)
+        # History bar is set up in _setup_ui() as a separate row below toolbar
 
 
     def _setup_shortcuts(self):
@@ -1839,7 +1841,7 @@ class MarkdownViewer(QMainWindow):
     def _add_welcome_tab(self):
         """Add initial welcome tab"""
         tab = self._add_new_tab()
-        self._render_markdown(tab, "# Welcome to Markdown Viewer\n\nOpen a folder to get started.\n\n## Keyboard Shortcuts\n\n| Shortcut | Action |\n|----------|--------|\n| Ctrl+T | New Tab |\n| Ctrl+W | Close Tab |\n| Ctrl+O | Open Folder |\n| Ctrl+Tab | Next Tab |\n| Ctrl+Shift+Tab | Previous Tab |\n| Ctrl+Shift+L | Toggle Sidebar |\n| Ctrl+Shift+O | Toggle Outline |\n| Ctrl+Shift+I | Toggle Stats |\n| Ctrl++ | Zoom In |\n| Ctrl+- | Zoom Out |\n| Ctrl+0 | Zoom Reset |\n| F5 | Refresh |")
+        self._render_markdown(tab, "# Welcome to Markdown Viewer\n\nOpen a folder to get started.\n\n## Keyboard Shortcuts\n\n| Shortcut | Action |\n|----------|--------|\n| Ctrl+O | Open Folder |\n| Ctrl+T | New Tab |\n| Ctrl+W | Close Tab |\n| Ctrl+Tab | Next Tab |\n| Ctrl+Shift+Tab | Previous Tab |\n| Ctrl+F | Search |\n| Ctrl+B | Bookmark |\n| Ctrl+H | Recent Files |\n| Ctrl+Shift+L | Toggle Sidebar |\n| Ctrl+Shift+O | Toggle Outline |\n| Ctrl+Shift+I | Toggle Stats |\n| Ctrl++ | Zoom In |\n| Ctrl+- | Zoom Out |\n| Ctrl+0 | Zoom Reset |\n| F5 | Refresh |\n| F1 | Help |\n| ESC | Go Back |")
 
     def _add_new_tab(self, folder_path: str = None) -> FolderTab:
         """Create and add a new folder tab"""
@@ -1935,18 +1937,12 @@ class MarkdownViewer(QMainWindow):
         if tab:
             if tab.current_file:
                 self.setWindowTitle(f"{self.app_title} - {os.path.basename(tab.current_file)}")
-                dir_part = os.path.dirname(tab.current_file) + os.sep
-                file_part = os.path.basename(tab.current_file)
-                self.path_label.setText(f"{dir_part}<b>{file_part}</b>")
             elif tab.current_folder:
                 self.setWindowTitle(f"{self.app_title} - {tab.current_folder}")
-                self.path_label.setText(tab.current_folder)
             else:
                 self.setWindowTitle(self.app_title)
-                self.path_label.setText("")
         else:
             self.setWindowTitle(self.app_title)
-            self.path_label.setText("")
 
         # Update bookmark button state
         if tab and tab.current_file:
@@ -1964,8 +1960,8 @@ class MarkdownViewer(QMainWindow):
             if widget:
                 widget.deleteLater()
 
-        # Get recent files (max 5)
-        recent_files = self.session_manager.get_recent_files()[:5]
+        # Get recent files (max 8)
+        recent_files = self.session_manager.get_recent_files()[:8]
         if not recent_files:
             return
 
@@ -2942,6 +2938,7 @@ class MarkdownViewer(QMainWindow):
                     self._update_scope_toggle_state(tab)
                     self._load_file(tab, previous_file)
                     self._update_window_title()
+                    self._update_history_bar()
 
                     # Update tree view selection
                     file_index = tab.file_model.index(previous_file)
@@ -2967,6 +2964,7 @@ class MarkdownViewer(QMainWindow):
                 self._update_scope_toggle_state(tab)
                 self._load_file(tab, previous_file)
                 self._update_window_title()
+                self._update_history_bar()
 
                 # Update tree view selection
                 file_index = tab.file_model.index(previous_file)

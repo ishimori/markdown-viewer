@@ -267,7 +267,7 @@ MarkdownViewer._on_link_clicked(tab, url, open_in_new_tab)
 │  │ - tab_widget: QTabWidget                 │      │
 │  │ - css_content: str                       │      │
 │  │ - session_manager: SessionManager        │      │
-│  │ - path_label: QLabel                     │      │
+│  │ - history_container: QWidget              │      │
 │  ├──────────────────────────────────────────┤      │
 │  │ + _setup_ui()                            │      │
 │  │ + _setup_toolbar()                       │      │

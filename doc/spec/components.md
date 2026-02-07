@@ -14,7 +14,7 @@ Qt ウィジェット用のスタイルシート定数。SSOT（Single Source of
 | `stats_name` | 統計項目名ラベル |
 | `stats_value` | 統計値ラベル |
 | `tab_widget` | タブウィジェット |
-| `path_label` | ツールバーのファイルパス表示ラベル |
+| `history_container` | 履歴バーのコンテナ |
 | `history_bar` | 履歴リンクボタン（通常状態） |
 | `history_separator` | 履歴リンク間の区切り文字 |
 | `history_current` | 履歴リンクボタン（現在のファイル） |
@@ -700,7 +700,7 @@ QSplitter (horizontal)
 | tab_widget | QTabWidget | タブコンテナ |
 | css_content | str | 読み込んだスタイルシート |
 | session_manager | SessionManager | セッション管理インスタンス |
-| path_label | QLabel | ツールバー上のファイルパス表示ラベル |
+| history_container | QWidget | 履歴バーのコンテナ（ツールバー下部） |
 | history_bar | QWidget | 履歴リンクボタンのコンテナ |
 | history_bar_layout | QHBoxLayout | 履歴リンクボタンのレイアウト |
 
