@@ -1626,9 +1626,9 @@ class MarkdownViewer(QMainWindow):
 
         self.css_content = ""
         self.highlight_css = ""
-        self.marked_js_path = ""
+        self.marked_js_content = ""
+        self.highlight_js_content = ""
         self.mermaid_js_path = ""
-        self.highlight_js_path = ""
         self.html_template = ""
         self.list_view_template = ""
         self.tab_widget = None
@@ -1672,11 +1672,19 @@ class MarkdownViewer(QMainWindow):
         if highlight_css_path.exists():
             self.highlight_css = highlight_css_path.read_text(encoding="utf-8")
 
-        # Get JavaScript paths
+        # Get JavaScript paths and content
         js_dir = get_resource_path("assets/js")
-        self.marked_js_path = str(js_dir / "marked.min.js").replace('\\', '/')
+        # Inline marked.js to avoid file:// cross-directory loading issues
+        marked_js_path = js_dir / "marked.min.js"
+        if marked_js_path.exists():
+            self.marked_js_content = marked_js_path.read_text(encoding="utf-8")
         self.mermaid_js_path = str(js_dir / "mermaid.min.js").replace('\\', '/')
-        self.highlight_js_path = str(js_dir / "highlight.min.js").replace('\\', '/')
+        # Inline highlight.js to avoid file:// cross-directory loading issues
+        highlight_js_path = js_dir / "highlight.min.js"
+        if highlight_js_path.exists():
+            self.highlight_js_content = highlight_js_path.read_text(encoding="utf-8")
+        else:
+            self.highlight_js_content = ""
 
         # Load HTML template
         template_path = get_resource_path("templates/markdown.html")
@@ -2329,7 +2337,7 @@ class MarkdownViewer(QMainWindow):
         # Build HTML from template
         html = self.html_template
         html = html.replace('$CSS_CONTENT$', self.css_content)
-        html = html.replace('$MARKED_JS_PATH$', self.marked_js_path)
+        html = html.replace('$MARKED_JS_CONTENT$', self.marked_js_content)
         html = html.replace('$MERMAID_JS_PATH$', self.mermaid_js_path)
         html = html.replace('$MARKDOWN_CONTENT$', escaped_content)
         html = html.replace('$LINE_INFO$', line_info_json)
@@ -2739,7 +2747,7 @@ class MarkdownViewer(QMainWindow):
     <meta charset="UTF-8">
     <style>{self.css_content}</style>
     <style>{self.highlight_css}</style>
-    <script src="file:///{self.highlight_js_path}"></script>
+    <script>{self.highlight_js_content}</script>
     <style>
         body {{ margin: 0; padding: 20px; background: var(--bg-color, #f8faff); }}
         .file-header {{

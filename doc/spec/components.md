@@ -786,10 +786,12 @@ QSplitter (horizontal)
 **読み込むリソース:**
 - `src/style.css` - CSSスタイルシート
 - `src/assets/css/highlight-github.css` - シンタックスハイライトCSS
-- `src/assets/js/marked.min.js` - Markdownパーサー
-- `src/assets/js/mermaid.min.js` - 図表ライブラリ
-- `src/assets/js/highlight.min.js` - シンタックスハイライト
+- `src/assets/js/marked.min.js` - Markdownパーサー（HTMLにインライン埋め込み）
+- `src/assets/js/mermaid.min.js` - 図表ライブラリ（外部ファイル参照）
+- `src/assets/js/highlight.min.js` - シンタックスハイライト（HTMLにインライン埋め込み）
 - `src/templates/markdown.html` - HTMLテンプレート
+
+**注記:** marked.js と highlight.js はインライン埋め込みにすることで、外部ディレクトリのファイルを開いた際の `file://` セキュリティ制限によるスクリプト読み込み失敗を防止している。mermaid.js はサイズが大きい（3MB超）ため外部ファイル参照のまま。
 
 #### `_update_window_title(self) -> None`
 

@@ -102,7 +102,7 @@ Markdownレンダリング用のHTMLテンプレート。以下のプレース�
 
 テンプレートの主要構成：
 
-- head: CSS埋め込み、marked.js/mermaid.js読み込み
+- head: CSS埋め込み、marked.jsインライン埋め込み、mermaid.js外部読み込み
 - body: ガター（行番号）、Backボタン、コンテンツ領域、コピートースト、サイドバー（TOC）
 - script: Markdownパース、ガター生成、Mermaid初期化、TOC生成
 

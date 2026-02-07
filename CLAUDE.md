@@ -74,3 +74,13 @@ pip install -r requirements.txt
 
 - サンプルファイル: `doc/sample.md`
 - セッションファイル: `~/.markdown-viewer/session.json`
+
+## 既知の制限事項・過去の教訓
+
+### file:// スクリプト読み込み制限
+
+Qt WebEngine (Chromium) は `setHtml(html, base_url)` で `base_url` と異なるディレクトリツリーの `file://` スクリプトをブロックする。外部ディレクトリのファイルを開くと `marked.js` が読み込めず、markdown がレンダリングされない問題があった。
+
+**対策:** `marked.min.js` (40KB) と `highlight.min.js` (123KB) はインライン埋め込み。`mermaid.min.js` (3.3MB) は `setHtml()` の 2MB 制限により外部参照のまま（Mermaid 図表のみ影響）。
+
+**調査のポイント:** 特定ディレクトリのファイルだけ表示が壊れる場合、ブラウザレベルのセキュリティ制限を疑う。静的解析（エスケープ処理・テンプレート生成・JS実行）では特定困難。
