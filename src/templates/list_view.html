@@ -277,7 +277,7 @@
         // Apply keyword highlighting on load
         document.addEventListener('DOMContentLoaded', function() {
             const previews = document.querySelectorAll('.item-preview');
-            const searchQuery = '$SEARCH_QUERY$';
+            const searchQuery = `$SEARCH_QUERY$`;
             if (searchQuery) {
                 const keywords = searchQuery.split(' ');
                 previews.forEach(preview => {
