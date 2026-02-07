@@ -579,7 +579,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSplitter, QTreeView,
     QVBoxLayout, QHBoxLayout, QWidget, QToolBar, QFileDialog, QMessageBox,
     QTabWidget, QTabBar, QLabel, QFrame, QMenu, QComboBox, QSizePolicy,
-    QPushButton, QLineEdit, QCheckBox
+    QPushButton, QLineEdit, QCheckBox, QStyle
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
@@ -607,6 +607,21 @@ QT_STYLES = {
         QComboBox::drop-down {
             border: none;
             padding-right: 8px;
+        }
+    """,
+    'parent_btn': """
+        QPushButton {
+            border: none;
+            border-bottom: 1px solid #e0e0e0;
+            background: #ffffff;
+            color: #555555;
+            font-size: 12px;
+            padding: 3px 8px;
+            text-align: left;
+        }
+        QPushButton:hover {
+            background: #e3f2fd;
+            color: #1976d2;
         }
     """,
     'stats_panel': """
@@ -813,6 +828,9 @@ class FileTypeIconModel(QFileSystemModel):
                 file_type = detect_file_type(file_path)
                 if file_type in self.BADGE_CONFIG:
                     return self._get_badge_icon(file_type)
+            elif self.isDir(index):
+                # Explicitly return folder icon to avoid Qt rendering gaps
+                return QApplication.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon)
         return super().data(index, role)
 
     def _get_badge_icon(self, file_type: FileType) -> QIcon:
@@ -1093,6 +1111,7 @@ class FolderTab(QWidget):
         self.file_info_labels = {}  # File metadata labels
         self.quick_action_buttons = []  # Quick action button references
         self.filter_combo = None
+        self.parent_btn = None
         self.navigation_history = []  # Stack for back navigation
         self.tab_recent_files = []  # Per-tab recent files for history bar
         # Search panel components
@@ -1412,6 +1431,14 @@ class FolderTab(QWidget):
         search_panel = self._setup_search_panel()
         left_layout.addWidget(search_panel)
 
+        # Parent folder button (at top of tree area, like ".." entry)
+        self.parent_btn = QPushButton("📁 ..")
+        self.parent_btn.setToolTip("Go to parent folder")
+        self.parent_btn.setStyleSheet(QT_STYLES['parent_btn'])
+        self.parent_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.parent_btn.setFixedHeight(24)
+        left_layout.addWidget(self.parent_btn)
+
         # Tree view setup with custom icon model
         self.tree_view = QTreeView()
         self.file_model = FileTypeIconModel()
@@ -1530,7 +1557,8 @@ class FolderTab(QWidget):
     def get_tab_name(self) -> str:
         """Return display name for tab"""
         if self.current_folder:
-            return os.path.basename(self.current_folder)
+            name = os.path.basename(self.current_folder)
+            return name if name else self.current_folder
         return "New Tab"
 
     def _apply_filter(self, index: int):
@@ -1913,6 +1941,11 @@ class MarkdownViewer(QMainWindow):
             lambda pos, t=tab: self._show_tree_context_menu(t, pos)
         )
 
+        # Connect parent folder button
+        tab.parent_btn.clicked.connect(
+            lambda checked, t=tab: self._navigate_to_parent(t)
+        )
+
         # Connect search panel buttons
         tab.search_button.clicked.connect(lambda checked, t=tab: self._perform_search(t))
         tab.search_input.returnPressed.connect(lambda t=tab: self._perform_search(t))
@@ -2115,6 +2148,16 @@ class MarkdownViewer(QMainWindow):
         """Handle tab change"""
         self._update_window_title()
         self._update_history_bar()
+
+    def _navigate_to_parent(self, tab: FolderTab):
+        """Navigate to parent directory of current folder"""
+        if not tab or not tab.current_folder:
+            return
+        parent = os.path.dirname(tab.current_folder)
+        if parent and parent != tab.current_folder:
+            tab.set_folder(parent)
+            self._update_tab_title(tab)
+            self._update_window_title()
 
     def _on_file_clicked(self, tab: FolderTab, index: QModelIndex):
         """Handle file click in tree view"""
@@ -3338,10 +3381,20 @@ class MarkdownViewer(QMainWindow):
             return
 
         menu = QMenu(self)
+
+        # Offer "Open in New Tab" for directories
+        if tab.file_model.isDir(index):
+            open_tab_action = menu.addAction("Open in New Tab")
+            menu.addSeparator()
+        else:
+            open_tab_action = None
+
         copy_path_action = menu.addAction("Copy Path")
 
         action = menu.exec(tab.tree_view.mapToGlobal(pos))
-        if action == copy_path_action:
+        if action and action == open_tab_action:
+            self._add_new_tab(file_path)
+        elif action and action == copy_path_action:
             QApplication.clipboard().setText(file_path)
 
     def open_file(self, file_path: str):

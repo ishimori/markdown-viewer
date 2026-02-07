@@ -9,6 +9,7 @@ Qt ウィジェット用のスタイルシート定数。SSOT（Single Source of
 | キー | 用途 |
 |------|------|
 | `filter_combo` | ファイルフィルタードロップダウン |
+| `parent_btn` | 親ディレクトリ移動ボタン |
 | `stats_panel` | 統計情報パネル |
 | `stats_header` | 統計ヘッダーラベル |
 | `stats_name` | 統計項目名ラベル |
@@ -392,7 +393,7 @@ BADGE_CONFIG = {
 
 #### `data(self, index, role)`
 
-`DecorationRole` の場合、ファイルタイプに応じたバッジアイコンを返す。
+`DecorationRole` の場合、ファイルタイプに応じたバッジアイコンを返す。ディレクトリの場合は `QStyle.SP_DirIcon` で標準フォルダアイコンを明示的に返す。
 
 #### `_get_badge_icon(self, file_type) -> QIcon`
 
@@ -594,6 +595,7 @@ SESSION_FILE = SESSION_DIR / "session.json"
 | web_page | MarkdownWebPage | リンクインターセプト用ページ |
 | stats_labels | dict | 統計情報ラベル群 |
 | filter_combo | QComboBox | ファイルフィルタードロップダウン |
+| parent_btn | QPushButton | 親ディレクトリ移動ボタン（⬆） |
 | navigation_history | list | ナビゲーション履歴スタック（tuple形式） |
 | tab_recent_files | list[dict] | タブ固有の最近開いたファイルリスト（最大8件、履歴バー用） |
 | search_input | QLineEdit | 検索入力ボックス |
@@ -1036,9 +1038,18 @@ QUrlベースURLを設定してHTMLをWebViewにセットする。相対リン�
 
 ファイルツリー上での右クリックメニューを表示。
 
-| メニュー項目 | 動作 |
-|------------|------|
-| Copy Path | ファイルパスをクリップボードにコピー |
+| メニュー項目 | 表示条件 | 動作 |
+|------------|---------|------|
+| Open in New Tab | フォルダの場合 | フォルダを新タブで開く |
+| Copy Path | 常に表示 | パスをクリップボードにコピー |
+
+#### `_navigate_to_parent(self, tab: FolderTab) -> None`
+
+現在のフォルダの親ディレクトリに移動。ドライブルートでは無効。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| tab | FolderTab | 対象タブ |
 
 ---
 
