@@ -347,6 +347,141 @@ tabs.setStyleSheet("""
 
 非選択タブのホバー時: 背景 #bbdefb
 
+### 検索パネル
+
+左サイドバー内に配置される検索パネル。入力欄、検索ボタン、オプションチェックボックス、スコープ切替ボタンで構成。
+
+```python
+search_panel.setStyleSheet("""
+    QFrame {
+        background: #f0f4f8;
+        border: 1px solid #90caf9;
+        border-radius: 4px;
+        padding: 8px;
+    }
+    QLineEdit {
+        padding: 6px 8px;
+        border: 1px solid #90caf9;
+        border-radius: 4px;
+        background: white;
+        font-size: 12px;
+        color: #1e3a5f;
+    }
+    QLineEdit:focus {
+        border-color: #1976d2;
+    }
+    QPushButton {
+        padding: 5px 10px;
+        border: 1px solid #1976d2;
+        border-radius: 4px;
+        background: #e3f2fd;
+        font-size: 11px;
+        color: #0d47a1;
+        font-weight: 500;
+    }
+    QPushButton:hover {
+        background: #bbdefb;
+    }
+    QPushButton:pressed {
+        background: #90caf9;
+    }
+    QPushButton:disabled {
+        background: #e0e0e0;
+        color: #9e9e9e;
+        border-color: #bdbdbd;
+    }
+    QCheckBox {
+        font-size: 10px;
+        spacing: 4px;
+        color: #5c6bc0;
+    }
+    QCheckBox::indicator {
+        width: 14px;
+        height: 14px;
+        border: 1px solid #90caf9;
+        border-radius: 3px;
+        background: white;
+    }
+    QCheckBox::indicator:checked {
+        background: #1976d2;
+        border-color: #1976d2;
+    }
+""")
+```
+
+#### スコープ切替トグル
+
+検索範囲を「全フォルダ」と「現在のフォルダ」で切り替えるセグメンテッドコントロール。`QButtonGroup` 内の2つの `QPushButton` で構成され、左右のボタンが結合した外観を持つ。
+
+| 項目 | 値 |
+|------|-----|
+| 構成 | QButtonGroup 内の QPushButton × 2 |
+| 左ボタン ObjectName | `scope_btn_left` |
+| 右ボタン ObjectName | `scope_btn_right` |
+| フォントサイズ | 11px |
+| パディング | 4px 8px |
+
+##### 形状（セグメンテッドコントロール）
+
+左右のボタンを結合して一体化した外観にするため、隣接する角丸とボーダーを調整する。
+
+```python
+# 左ボタン: 右側の角丸を除去し、右ボーダーを非表示
+QPushButton#scope_btn_left {
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+    border-right: none;
+    padding: 4px 8px;
+    font-size: 11px;
+}
+
+# 右ボタン: 左側の角丸を除去
+QPushButton#scope_btn_right {
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+    padding: 4px 8px;
+    font-size: 11px;
+}
+```
+
+##### 状態別スタイル
+
+| 状態 | 背景色 | テキスト色 | ボーダー色 | フォントウェイト |
+|------|--------|-----------|-----------|----------------|
+| 選択中（checked） | #1976d2 | white | #1976d2 | 600 |
+| 非選択（unchecked） | #e3f2fd | #5c6bc0 | #90caf9 | - |
+| ホバー（非選択時） | #bbdefb | - | - | - |
+| 無効（disabled） | #e0e0e0 | #9e9e9e | #bdbdbd | - |
+
+```python
+# 選択中
+QPushButton#scope_btn_left:checked, QPushButton#scope_btn_right:checked {
+    background: #1976d2;
+    color: white;
+    border-color: #1976d2;
+    font-weight: 600;
+}
+
+# 非選択
+QPushButton#scope_btn_left:!checked, QPushButton#scope_btn_right:!checked {
+    background: #e3f2fd;
+    color: #5c6bc0;
+    border-color: #90caf9;
+}
+
+# ホバー（非選択時のみ）
+QPushButton#scope_btn_left:hover:!checked, QPushButton#scope_btn_right:hover:!checked {
+    background: #bbdefb;
+}
+
+# 無効状態
+QPushButton#scope_btn_right:disabled {
+    background: #e0e0e0;
+    color: #9e9e9e;
+    border-color: #bdbdbd;
+}
+```
+
 ## レスポンシブ対応
 
 ### 最小ウィンドウサイズ

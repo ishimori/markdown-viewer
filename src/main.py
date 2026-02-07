@@ -151,6 +151,28 @@ class SearchEngine:
         self.total_files = len(files_searched)
         return results
 
+    def search_single_file(self, file_path: str, query: str,
+                           case_sensitive: bool = False, use_regex: bool = False,
+                           operator: str = 'AND') -> List[SearchResult]:
+        """Perform search within a single file"""
+        results = []
+
+        if not os.path.isfile(file_path):
+            return results
+
+        if ' ' in query and operator in ['AND', 'OR']:
+            keywords = query.split()
+            results = self._search_multi_keyword(file_path, keywords, operator, case_sensitive)
+        elif use_regex:
+            results = self._search_file_regex(file_path, query, case_sensitive)
+        else:
+            results = self._search_file(file_path, query, case_sensitive)
+
+        self.results = results
+        self.total_matches = len(results)
+        self.total_files = 1 if results else 0
+        return results
+
     def _collect_files_recursively(self, tree_model, folder_path: str) -> List[str]:
         """Recursively collect all file paths from tree model"""
         files = []
@@ -638,6 +660,49 @@ QT_STYLES = {
             padding: 0 8px;
         }
     """,
+    'history_bar': """
+        QPushButton {
+            border: none;
+            background: transparent;
+            color: #1976d2;
+            font-family: 'Meiryo UI', 'Meiryo', sans-serif;
+            font-size: 11px;
+            padding: 2px 6px;
+        }
+        QPushButton:hover {
+            color: #0d47a1;
+            background: #e3f2fd;
+            border-radius: 3px;
+        }
+        QPushButton:pressed {
+            background: #bbdefb;
+        }
+    """,
+    'history_separator': """
+        QLabel {
+            color: #b0bec5;
+            font-size: 10px;
+            padding: 0 1px;
+        }
+    """,
+    'history_current': """
+        QPushButton {
+            border: none;
+            background: #e3f2fd;
+            color: #0d47a1;
+            font-family: 'Meiryo UI', 'Meiryo', sans-serif;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        QPushButton:hover {
+            background: #bbdefb;
+        }
+        QPushButton:pressed {
+            background: #90caf9;
+        }
+    """,
     'search_panel': """
         QFrame {
             background: #f0f4f8;
@@ -691,6 +756,38 @@ QT_STYLES = {
         QCheckBox::indicator:checked {
             background: #1976d2;
             border-color: #1976d2;
+        }
+        QPushButton#scope_btn_left {
+            border-top-right-radius: 0px;
+            border-bottom-right-radius: 0px;
+            border-right: none;
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+        QPushButton#scope_btn_right {
+            border-top-left-radius: 0px;
+            border-bottom-left-radius: 0px;
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+        QPushButton#scope_btn_left:checked, QPushButton#scope_btn_right:checked {
+            background: #1976d2;
+            color: white;
+            border-color: #1976d2;
+            font-weight: 600;
+        }
+        QPushButton#scope_btn_left:!checked, QPushButton#scope_btn_right:!checked {
+            background: #e3f2fd;
+            color: #5c6bc0;
+            border-color: #90caf9;
+        }
+        QPushButton#scope_btn_left:hover:!checked, QPushButton#scope_btn_right:hover:!checked {
+            background: #bbdefb;
+        }
+        QPushButton#scope_btn_right:disabled {
+            background: #e0e0e0;
+            color: #9e9e9e;
+            border-color: #bdbdbd;
         }
     """
 }
@@ -879,7 +976,8 @@ class SessionManager:
         return [f for f in recent_files if os.path.exists(f.get('file_path', ''))]
 
     def add_search_history(self, query: str, case_sensitive: bool, use_regex: bool,
-                          search_filenames: bool, operator: str) -> None:
+                          search_filenames: bool, operator: str,
+                          scope: str = 'all') -> None:
         """Add search to history (max 5)"""
         session_data = self.load_session() or {}
 
@@ -895,6 +993,7 @@ class SessionManager:
             'regex': use_regex,
             'search_filenames': search_filenames,
             'operator': operator,
+            'scope': scope,
             'timestamp': time.time()
         })
 
@@ -1004,21 +1103,50 @@ class FolderTab(QWidget):
         self.filename_check = None
         self.recent_btn = None
         self.bookmark_btn = None
+        self.scope_all_btn = None
+        self.scope_current_btn = None
         self.current_search_query = ""
         self.current_search_results = []
+        self.current_search_scope = 'all'
         self._highlight_line = 0
         self._highlight_keyword = ""
         self._setup_ui()
 
     def _setup_search_panel(self):
         """Create search panel widget"""
-        from PyQt6.QtWidgets import QLineEdit, QPushButton, QCheckBox
+        from PyQt6.QtWidgets import QLineEdit, QPushButton, QCheckBox, QButtonGroup
 
         search_panel = QFrame()
         search_panel.setStyleSheet(QT_STYLES['search_panel'])
         search_layout = QVBoxLayout(search_panel)
         search_layout.setContentsMargins(6, 6, 6, 6)
         search_layout.setSpacing(6)
+
+        # Search scope toggle
+        scope_layout = QHBoxLayout()
+        scope_layout.setSpacing(0)
+        scope_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.scope_all_btn = QPushButton("全ファイル")
+        self.scope_all_btn.setObjectName("scope_btn_left")
+        self.scope_all_btn.setCheckable(True)
+        self.scope_all_btn.setChecked(True)
+        self.scope_all_btn.setToolTip("フォルダ内の全ファイルから検索")
+
+        self.scope_current_btn = QPushButton("このファイル")
+        self.scope_current_btn.setObjectName("scope_btn_right")
+        self.scope_current_btn.setCheckable(True)
+        self.scope_current_btn.setEnabled(False)
+        self.scope_current_btn.setToolTip("現在開いているファイル内を検索")
+
+        self.scope_group = QButtonGroup(search_panel)
+        self.scope_group.setExclusive(True)
+        self.scope_group.addButton(self.scope_all_btn)
+        self.scope_group.addButton(self.scope_current_btn)
+
+        scope_layout.addWidget(self.scope_all_btn)
+        scope_layout.addWidget(self.scope_current_btn)
+        search_layout.addLayout(scope_layout)
 
         # Search input
         self.search_input = QLineEdit()
@@ -1442,6 +1570,9 @@ class MarkdownViewer(QMainWindow):
         else:
             self._restore_session()
 
+        # Initialize history bar with existing recent files
+        self._update_history_bar()
+
     def _load_resources(self):
         """Load CSS, JavaScript paths, and HTML template"""
         # Load CSS
@@ -1535,16 +1666,30 @@ class MarkdownViewer(QMainWindow):
         help_action.triggered.connect(self._show_help)
         toolbar.addAction(help_action)
 
+        # History bar container (recent files links + spacer + path label)
+        history_container = QWidget()
+        history_layout = QHBoxLayout(history_container)
+        history_layout.setContentsMargins(4, 0, 0, 0)
+        history_layout.setSpacing(0)
+
+        # Recent files history area
+        self.history_bar = QWidget()
+        self.history_bar_layout = QHBoxLayout(self.history_bar)
+        self.history_bar_layout.setContentsMargins(0, 0, 0, 0)
+        self.history_bar_layout.setSpacing(0)
+        history_layout.addWidget(self.history_bar)
+
         # Spacer to push path label to the right
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(spacer)
+        history_layout.addStretch(1)
 
         # Path label for current file
         self.path_label = QLabel("")
         self.path_label.setStyleSheet(QT_STYLES['path_label'])
         self.path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        toolbar.addWidget(self.path_label)
+        history_layout.addWidget(self.path_label)
+
+        history_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(history_container)
 
 
     def _setup_shortcuts(self):
@@ -1598,6 +1743,25 @@ class MarkdownViewer(QMainWindow):
             tab.search_input.setFocus()
             tab.search_input.selectAll()
 
+    def _on_scope_toggled(self, tab: FolderTab, current_file_checked: bool):
+        """Handle search scope toggle change"""
+        if current_file_checked:
+            tab.search_input.setPlaceholderText("Search in current file...")
+            tab.filename_check.setEnabled(False)
+            tab.filename_check.setChecked(False)
+        else:
+            tab.search_input.setPlaceholderText("Search in files...")
+            tab.filename_check.setEnabled(True)
+
+    def _update_scope_toggle_state(self, tab: FolderTab):
+        """Update scope toggle button enabled state based on current file"""
+        if tab.current_file:
+            tab.scope_current_btn.setEnabled(True)
+        else:
+            tab.scope_current_btn.setEnabled(False)
+            if tab.scope_current_btn.isChecked():
+                tab.scope_all_btn.setChecked(True)
+
     def _toggle_current_bookmark(self):
         """Toggle bookmark for currently opened file"""
         tab = self._get_current_tab()
@@ -1645,6 +1809,7 @@ class MarkdownViewer(QMainWindow):
         if tab and not tab.current_file and not tab.current_folder:
             # Current tab is empty, use it
             tab.current_file = help_file
+            self._update_scope_toggle_state(tab)
             self._load_file(tab, help_file)
             self._update_window_title()
         else:
@@ -1702,6 +1867,9 @@ class MarkdownViewer(QMainWindow):
         tab.recent_btn.clicked.connect(lambda checked, t=tab: self._show_recent_files(t))
         tab.bookmark_btn.clicked.connect(lambda checked, t=tab: self._show_bookmarks(t))
 
+        # Connect scope toggle
+        tab.scope_current_btn.toggled.connect(lambda checked, t=tab: self._on_scope_toggled(t, checked))
+
         if folder_path:
             tab.set_folder(folder_path)
             self.tab_widget.addTab(tab, tab.get_tab_name())
@@ -1717,6 +1885,8 @@ class MarkdownViewer(QMainWindow):
         if folder:
             tab = self._get_current_tab()
             if tab:
+                tab.current_file = None
+                self._update_scope_toggle_state(tab)
                 tab.set_folder(folder)
                 self._update_tab_title(tab)
                 self._update_window_title()
@@ -1732,6 +1902,7 @@ class MarkdownViewer(QMainWindow):
             tab = self.tab_widget.widget(0)
             tab.current_folder = None
             tab.current_file = None
+            self._update_scope_toggle_state(tab)
             self.tab_widget.setTabText(0, "New Tab")
             self._render_markdown(tab, "# Welcome to Markdown Viewer\n\nOpen a folder to get started.")
             self._update_window_title()
@@ -1784,6 +1955,95 @@ class MarkdownViewer(QMainWindow):
         else:
             self._update_bookmark_button(False)
 
+    def _update_history_bar(self):
+        """Update the recent files history bar in toolbar"""
+        # Clear existing widgets
+        while self.history_bar_layout.count():
+            item = self.history_bar_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        # Get recent files (max 5)
+        recent_files = self.session_manager.get_recent_files()[:5]
+        if not recent_files:
+            return
+
+        # Get current file for highlighting
+        tab = self._get_current_tab()
+        current_file = tab.current_file if tab else None
+
+        for i, file_info in enumerate(recent_files):
+            # Add separator between items
+            if i > 0:
+                sep = QLabel("›")
+                sep.setStyleSheet(QT_STYLES['history_separator'])
+                self.history_bar_layout.addWidget(sep)
+
+            file_path = file_info.get('file_path', '')
+            file_name = file_info.get('file_name', os.path.basename(file_path))
+
+            btn = QPushButton(file_name)
+            btn.setToolTip(file_path)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+            # Highlight current file
+            if current_file and os.path.normcase(file_path) == os.path.normcase(current_file):
+                btn.setStyleSheet(QT_STYLES['history_current'])
+            else:
+                btn.setStyleSheet(QT_STYLES['history_bar'])
+
+            # Connect click handler (capture file_path by default arg)
+            btn.clicked.connect(lambda checked, fp=file_path: self._on_history_link_clicked(fp))
+            self.history_bar_layout.addWidget(btn)
+
+    def _on_history_link_clicked(self, file_path: str):
+        """Handle click on history bar link"""
+        if not os.path.exists(file_path):
+            QMessageBox.warning(self, "File Not Found", f"File not found:\n{file_path}")
+            self._update_history_bar()
+            return
+
+        tab = self._get_current_tab()
+        if not tab:
+            return
+
+        # Skip if already viewing this file
+        if tab.current_file and os.path.normcase(tab.current_file) == os.path.normcase(file_path):
+            return
+
+        # Update bookmark access time if bookmarked
+        if self.bookmark_manager.is_bookmarked(file_path):
+            self.bookmark_manager.update_access_time(file_path)
+
+        # Update folder context if needed
+        file_folder = os.path.dirname(file_path)
+        if not tab.current_folder or os.path.normcase(tab.current_folder) != os.path.normcase(file_folder):
+            tab.set_folder(file_folder)
+            self._update_tab_title(tab)
+
+        # Save current state to navigation history for back navigation
+        if tab.current_file:
+            tab.navigation_history.append(('file', tab.current_file))
+
+        # Open file in current tab
+        tab.current_file = file_path
+        self._update_scope_toggle_state(tab)
+        self._load_file(tab, file_path)
+        self._update_window_title()
+
+        # Update tree view selection
+        def select_file():
+            file_index = tab.file_model.index(file_path)
+            if file_index.isValid():
+                tab.tree_view.setCurrentIndex(file_index)
+                tab.tree_view.scrollTo(file_index)
+        QTimer.singleShot(100, select_file)
+
+        # Add to recent files and update history bar
+        self.session_manager.add_recent_file(file_path)
+        self._update_history_bar()
+
     def _update_tab_title(self, tab: FolderTab):
         """Update tab title"""
         index = self.tab_widget.indexOf(tab)
@@ -1793,6 +2053,7 @@ class MarkdownViewer(QMainWindow):
     def _on_tab_changed(self, index: int):
         """Handle tab change"""
         self._update_window_title()
+        self._update_history_bar()
 
     def _on_file_clicked(self, tab: FolderTab, index: QModelIndex):
         """Handle file click in tree view"""
@@ -1810,11 +2071,13 @@ class MarkdownViewer(QMainWindow):
             # Clear navigation history when selecting from sidebar
             tab.navigation_history.clear()
             tab.current_file = file_path
+            self._update_scope_toggle_state(tab)
             self._load_file(tab, file_path)
             self._update_window_title()
 
             # Add to recent files
             self.session_manager.add_recent_file(file_path)
+            self._update_history_bar()
 
     def _load_markdown_file(self, tab: FolderTab, file_path: str):
         """Load and render markdown file (or text file as markdown)"""
@@ -1923,9 +2186,13 @@ class MarkdownViewer(QMainWindow):
         escaped_content = markdown_content.replace('\\', '\\\\')
         escaped_content = escaped_content.replace('`', '\\`')
         escaped_content = escaped_content.replace('$', '\\$')
+        # Prevent </script> in content from closing the HTML script element
+        escaped_content = escaped_content.replace('</', '<\\/')
 
         # Raw source lines for clipboard copy (JSON-encoded)
         raw_lines_json = json.dumps(markdown_content.split('\n'), ensure_ascii=False)
+        # Prevent </script> in JSON from closing the HTML script element
+        raw_lines_json = raw_lines_json.replace('</', '<\\/')
 
         # File path for clipboard copy
         file_path = (tab.current_file or '').replace('\\', '\\\\')
@@ -2007,15 +2274,26 @@ class MarkdownViewer(QMainWindow):
         if not query:
             return
 
-        if not tab.current_folder:
+        # Determine search scope
+        search_current_file = (tab.scope_current_btn.isChecked()
+                               and tab.scope_current_btn.isEnabled())
+
+        if search_current_file:
+            if not tab.current_file:
+                # Safety fallback - should not happen because button is disabled
+                tab.scope_all_btn.setChecked(True)
+                search_current_file = False
+
+        if not search_current_file and not tab.current_folder:
             QMessageBox.warning(self, "No Folder", "Please open a folder first.")
             return
 
         # Get search options
         case_sensitive = tab.case_sensitive_check.isChecked()
         use_regex = tab.regex_check.isChecked()
-        search_filenames = tab.filename_check.isChecked()
+        search_filenames = tab.filename_check.isChecked() if not search_current_file else False
         operator = 'AND'  # Default operator
+        scope = 'current' if search_current_file else 'all'
 
         # Disable search button while searching
         tab.search_button.setEnabled(False)
@@ -2023,22 +2301,34 @@ class MarkdownViewer(QMainWindow):
 
         try:
             # Perform search
-            results = self.search_engine.search(
-                tab.current_folder,
-                tab.file_model,
-                query,
-                case_sensitive,
-                use_regex,
-                search_filenames,
-                operator
-            )
+            if search_current_file:
+                results = self.search_engine.search_single_file(
+                    tab.current_file,
+                    query,
+                    case_sensitive,
+                    use_regex,
+                    operator
+                )
+            else:
+                results = self.search_engine.search(
+                    tab.current_folder,
+                    tab.file_model,
+                    query,
+                    case_sensitive,
+                    use_regex,
+                    search_filenames,
+                    operator
+                )
 
             # Store results
             tab.current_search_query = query
             tab.current_search_results = results
+            tab.current_search_scope = scope
 
             # Add to search history
-            self.session_manager.add_search_history(query, case_sensitive, use_regex, search_filenames, operator)
+            self.session_manager.add_search_history(
+                query, case_sensitive, use_regex, search_filenames, operator, scope
+            )
 
             # Save current state to navigation history
             if tab.current_file:
@@ -2047,7 +2337,7 @@ class MarkdownViewer(QMainWindow):
                 tab.navigation_history.append(('folder', tab.current_folder))
 
             # Render results
-            self._render_search_results(tab, results, query)
+            self._render_search_results(tab, results, query, scope)
 
         except Exception as e:
             QMessageBox.critical(self, "Search Error", f"Failed to search:\n{e}")
@@ -2056,15 +2346,20 @@ class MarkdownViewer(QMainWindow):
             tab.search_button.setEnabled(True)
             tab.search_button.setText("🔍")
 
-    def _render_search_results(self, tab: FolderTab, results: List[SearchResult], query: str):
+    def _render_search_results(self, tab: FolderTab, results: List[SearchResult],
+                               query: str, scope: str = 'all'):
         """Render search results using list view template"""
         # Clear file info when showing search results
         tab.clear_file_info()
 
         # Generate statistics
         total_matches = len(results)
-        total_files = len(set(r.file_path for r in results))
-        stats = f"{total_matches} match{'es' if total_matches != 1 else ''} in {total_files} file{'s' if total_files != 1 else ''}"
+        if scope == 'current' and tab.current_file:
+            filename = os.path.basename(tab.current_file)
+            stats = f'{total_matches} match{"es" if total_matches != 1 else ""} in "{filename}"'
+        else:
+            total_files = len(set(r.file_path for r in results))
+            stats = f"{total_matches} match{'es' if total_matches != 1 else ''} in {total_files} file{'s' if total_files != 1 else ''}"
 
         # Generate list items HTML
         list_items_html = self._generate_list_items_html(results, 'search', query)
@@ -2206,6 +2501,8 @@ class MarkdownViewer(QMainWindow):
         escaped = content.replace('\\', '\\\\')
         escaped = escaped.replace('`', '\\`')
         escaped = escaped.replace('$', '\\$')
+        # Prevent </script> from closing the HTML script element
+        escaped = escaped.replace('</', '<\\/')
         return escaped
 
     def _escape_html(self, text: str) -> str:
@@ -2604,6 +2901,7 @@ class MarkdownViewer(QMainWindow):
                 folder = os.path.dirname(target_path)
                 new_tab = self._add_new_tab(folder)
                 new_tab.current_file = target_path
+                self._update_scope_toggle_state(new_tab)
                 self._load_file(new_tab, target_path)
                 self._update_window_title()
             else:
@@ -2611,6 +2909,7 @@ class MarkdownViewer(QMainWindow):
                 if tab.current_file:
                     tab.navigation_history.append(('file', tab.current_file))
                 tab.current_file = target_path
+                self._update_scope_toggle_state(tab)
                 self._load_file(tab, target_path)
                 self._update_window_title()
 
@@ -2640,6 +2939,7 @@ class MarkdownViewer(QMainWindow):
                 previous_file = previous_state[1]
                 if os.path.exists(previous_file):
                     tab.current_file = previous_file
+                    self._update_scope_toggle_state(tab)
                     self._load_file(tab, previous_file)
                     self._update_window_title()
 
@@ -2653,15 +2953,18 @@ class MarkdownViewer(QMainWindow):
                 # Previous state was search results
                 query = previous_state[1]
                 results = previous_state[2]
+                scope = previous_state[3] if len(previous_state) > 3 else 'all'
                 tab.current_search_query = query
                 tab.current_search_results = results
-                self._render_search_results(tab, results, query)
+                tab.current_search_scope = scope
+                self._render_search_results(tab, results, query, scope)
 
         else:
             # Legacy format: just a file path (string)
             previous_file = previous_state
             if os.path.exists(previous_file):
                 tab.current_file = previous_file
+                self._update_scope_toggle_state(tab)
                 self._load_file(tab, previous_file)
                 self._update_window_title()
 
@@ -2687,10 +2990,12 @@ class MarkdownViewer(QMainWindow):
 
         # Save current search results to history
         if tab.current_search_results:
-            tab.navigation_history.append(('search', tab.current_search_query, tab.current_search_results))
+            tab.navigation_history.append(('search', tab.current_search_query,
+                                           tab.current_search_results, tab.current_search_scope))
 
         # Open file with highlighting
         tab.current_file = file_path
+        self._update_scope_toggle_state(tab)
         self._load_file_with_highlight(tab, file_path, line_number, keyword)
         self._update_window_title()
 
@@ -2718,11 +3023,13 @@ class MarkdownViewer(QMainWindow):
 
         # Open file
         tab.current_file = file_path
+        self._update_scope_toggle_state(tab)
         self._load_file(tab, file_path)
         self._update_window_title()
 
         # Add to recent files
         self.session_manager.add_recent_file(file_path)
+        self._update_history_bar()
 
         # Update tree view selection
         file_index = tab.file_model.index(file_path)
@@ -2765,7 +3072,8 @@ class MarkdownViewer(QMainWindow):
         if tab.current_file:
             tab.navigation_history.append(('file', tab.current_file))
         elif tab.current_search_results:
-            tab.navigation_history.append(('search', tab.current_search_query, tab.current_search_results))
+            tab.navigation_history.append(('search', tab.current_search_query,
+                                           tab.current_search_results, tab.current_search_scope))
 
         # Generate list items HTML
         list_items_html = self._generate_list_items_html(recent_files, 'recent')
@@ -2798,7 +3106,8 @@ class MarkdownViewer(QMainWindow):
         if tab.current_file:
             tab.navigation_history.append(('file', tab.current_file))
         elif tab.current_search_results:
-            tab.navigation_history.append(('search', tab.current_search_query, tab.current_search_results))
+            tab.navigation_history.append(('search', tab.current_search_query,
+                                           tab.current_search_results, tab.current_search_scope))
 
         # Generate list items HTML
         list_items_html = self._generate_list_items_html(bookmarks, 'bookmarks')
@@ -2908,6 +3217,7 @@ class MarkdownViewer(QMainWindow):
 
         # Load and display the file
         tab.current_file = file_path
+        self._update_scope_toggle_state(tab)
         self._load_file(tab, file_path)
         self._update_window_title()
 
@@ -2984,6 +3294,7 @@ class MarkdownViewer(QMainWindow):
             def load_pending_files():
                 for tab, file_path in pending_file_loads:
                     tab.current_file = file_path
+                    self._update_scope_toggle_state(tab)
                     file_index = tab.file_model.index(file_path)
                     if file_index.isValid():
                         tab.tree_view.setCurrentIndex(file_index)
