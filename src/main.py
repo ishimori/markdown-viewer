@@ -898,7 +898,8 @@ class SessionManager:
                     tabs.append({
                         "folder_path": tab.current_folder,
                         "selected_file": tab.current_file,
-                        "filter_index": tab.get_filter_index()
+                        "filter_index": tab.get_filter_index(),
+                        "tab_recent_files": tab.tab_recent_files
                     })
 
             session_data = {
@@ -1093,6 +1094,7 @@ class FolderTab(QWidget):
         self.quick_action_buttons = []  # Quick action button references
         self.filter_combo = None
         self.navigation_history = []  # Stack for back navigation
+        self.tab_recent_files = []  # Per-tab recent files for history bar
         # Search panel components
         self.search_input = None
         self.search_button = None
@@ -1115,6 +1117,17 @@ class FolderTab(QWidget):
         self._highlight_line = 0
         self._highlight_keyword = ""
         self._setup_ui()
+
+    def add_recent_file(self, file_path: str):
+        """Add file to per-tab recent files list (max 8)"""
+        if not file_path:
+            return
+        self.tab_recent_files = [f for f in self.tab_recent_files if f.get('file_path') != file_path]
+        self.tab_recent_files.insert(0, {
+            'file_path': file_path,
+            'file_name': os.path.basename(file_path),
+        })
+        self.tab_recent_files = self.tab_recent_files[:8]
 
     def _setup_search_panel(self):
         """Create search panel widget"""
@@ -2006,14 +2019,16 @@ class MarkdownViewer(QMainWindow):
             if widget:
                 widget.deleteLater()
 
-        # Get recent files (max 8)
-        recent_files = self.session_manager.get_recent_files()[:8]
+        # Get per-tab recent files
+        tab = self._get_current_tab()
+        if not tab:
+            return
+        recent_files = tab.tab_recent_files
         if not recent_files:
             return
 
         # Get current file for highlighting
-        tab = self._get_current_tab()
-        current_file = tab.current_file if tab else None
+        current_file = tab.current_file
 
         for i, file_info in enumerate(recent_files):
             # Add separator between items
@@ -2038,6 +2053,9 @@ class MarkdownViewer(QMainWindow):
             # Connect click handler (capture file_path by default arg)
             btn.clicked.connect(lambda checked, fp=file_path: self._on_history_link_clicked(fp))
             self.history_bar_layout.addWidget(btn)
+
+        # Push items to the left
+        self.history_bar_layout.addStretch()
 
     def _on_history_link_clicked(self, file_path: str):
         """Handle click on history bar link"""
@@ -2084,6 +2102,7 @@ class MarkdownViewer(QMainWindow):
 
         # Add to recent files and update history bar
         self.session_manager.add_recent_file(file_path)
+        tab.add_recent_file(file_path)
         self._update_history_bar()
 
     def _update_tab_title(self, tab: FolderTab):
@@ -2119,6 +2138,7 @@ class MarkdownViewer(QMainWindow):
 
             # Add to recent files
             self.session_manager.add_recent_file(file_path)
+            tab.add_recent_file(file_path)
             self._update_history_bar()
 
     def _load_markdown_file(self, tab: FolderTab, file_path: str):
@@ -3027,6 +3047,11 @@ class MarkdownViewer(QMainWindow):
                 self._update_scope_toggle_state(new_tab)
                 self._load_file(new_tab, target_path)
                 self._update_window_title()
+
+                # Add to recent files
+                self.session_manager.add_recent_file(target_path)
+                new_tab.add_recent_file(target_path)
+                self._update_history_bar()
             else:
                 # Open in same tab - add current file to history for back navigation
                 if tab.current_file:
@@ -3035,6 +3060,11 @@ class MarkdownViewer(QMainWindow):
                 self._update_scope_toggle_state(tab)
                 self._load_file(tab, target_path)
                 self._update_window_title()
+
+                # Add to recent files
+                self.session_manager.add_recent_file(target_path)
+                tab.add_recent_file(target_path)
+                self._update_history_bar()
 
                 # Update tree view selection if in same folder
                 file_index = tab.file_model.index(target_path)
@@ -3154,6 +3184,7 @@ class MarkdownViewer(QMainWindow):
 
         # Add to recent files
         self.session_manager.add_recent_file(file_path)
+        tab.add_recent_file(file_path)
         self._update_history_bar()
 
         # Update tree view selection
@@ -3346,6 +3377,11 @@ class MarkdownViewer(QMainWindow):
         self._load_file(tab, file_path)
         self._update_window_title()
 
+        # Add to recent files
+        self.session_manager.add_recent_file(file_path)
+        tab.add_recent_file(file_path)
+        self._update_history_bar()
+
     def closeEvent(self, event: QCloseEvent):
         """Save session before closing"""
         self.session_manager.save_session(self)
@@ -3405,6 +3441,13 @@ class MarkdownViewer(QMainWindow):
                     tab = self._add_new_tab(folder)
                     tab.set_filter_index(filter_index)
                     restored_any = True
+
+                    # Restore per-tab recent files
+                    saved_recent = tab_data.get('tab_recent_files', [])
+                    tab.tab_recent_files = [
+                        f for f in saved_recent
+                        if os.path.exists(f.get('file_path', ''))
+                    ]
 
                     # Queue file for delayed loading (QFileSystemModel needs time)
                     if selected_file and os.path.exists(selected_file):

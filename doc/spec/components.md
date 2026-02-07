@@ -595,6 +595,7 @@ SESSION_FILE = SESSION_DIR / "session.json"
 | stats_labels | dict | 統計情報ラベル群 |
 | filter_combo | QComboBox | ファイルフィルタードロップダウン |
 | navigation_history | list | ナビゲーション履歴スタック（tuple形式） |
+| tab_recent_files | list[dict] | タブ固有の最近開いたファイルリスト（最大8件、履歴バー用） |
 | search_input | QLineEdit | 検索入力ボックス |
 | search_button | QPushButton | 検索実行ボタン |
 | case_sensitive_check | QCheckBox | 大文字小文字区別チェックボックス |
@@ -630,6 +631,14 @@ QSplitter (horizontal)
 │       └── Lines / Chars / Words / Read / Size
 └── web_view (QWebEngineView + MarkdownWebPage)
 ```
+
+#### `add_recent_file(self, file_path: str) -> None`
+
+タブ固有の最近開いたファイルリストにファイルを追加（最大8件、重複時は先頭に移動）。
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| file_path | str | 追加するファイルの絶対パス |
 
 #### `set_folder(self, folder_path: str) -> None`
 
